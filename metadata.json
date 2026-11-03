@@ -1,0 +1,6 @@
+{
+  "name": "SafeWalk",
+  "description": "Safest route pedestrian navigation for walking at night, avoiding high-crime areas and unlit streets with real-time crowd reports and SOS tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

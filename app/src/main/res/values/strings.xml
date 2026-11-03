@@ -1,0 +1,69 @@
+<resources>
+    <string name="app_name">SafeWalk</string>
+    <string name="tagline">Nighttime Safe Route Navigation</string>
+    
+    <!-- Navigation Tabs -->
+    <string name="tab_route">Safe Map</string>
+    <string name="tab_reports">Live Reports</string>
+    <string name="tab_guardian">SOS Toolkit</string>
+    <string name="tab_contacts">Guardians</string>
+
+    <!-- Map & Route Planning -->
+    <string name="search_destination_hint">Where are you walking to?</string>
+    <string name="current_location">Current Location (Metro Station)</string>
+    <string name="route_safest">Safest Route</string>
+    <string name="route_well_lit">Well-Lit Only</string>
+    <string name="route_fastest">Direct (Hazardous)</string>
+    <string name="safety_score">Safety Score</string>
+    <string name="lighting_rating">Street Lighting</string>
+    <string name="safe_havens_count">24/7 Havens</string>
+    <string name="hazards_avoided">Hazards Avoided</string>
+    <string name="start_navigation">Start Safe Walk</string>
+    <string name="stop_navigation">End Journey</string>
+    <string name="arrived_safely">I Arrived Safely</string>
+    <string name="recenter_map">Recenter</string>
+
+    <!-- Layers & Filters -->
+    <string name="layer_lighting">Street Lighting</string>
+    <string name="layer_crime_zones">Crime Spots</string>
+    <string name="layer_safe_havens">24/7 Safe Havens</string>
+    <string name="layer_reports">Crowd Alerts</string>
+
+    <!-- SOS & Emergency Toolkit -->
+    <string name="sos_title">Emergency SOS</string>
+    <string name="sos_subtitle">Hold 3s or triple-tap to activate emergency protocol</string>
+    <string name="sos_activated">SOS PROTOCOL ACTIVE</string>
+    <string name="sos_cancelling">Hold to cancel (3s)</string>
+    <string name="siren_toggle">Loud Siren Alarm</string>
+    <string name="strobe_toggle">Strobe Flashlight</string>
+    <string name="fake_call_title">Simulate Fake Call</string>
+    <string name="fake_call_desc">Deter suspicious followers with an incoming call</string>
+    <string name="walk_timer_title">Safe Arrival Timer</string>
+    <string name="walk_timer_desc">Alerts contacts if you don\'t check in before arrival</string>
+    <string name="call_police_direct">Call 911 / Emergency</string>
+    <string name="dispatch_sos_sms">Dispatch SOS to Guardians</string>
+
+    <!-- Crowd Reports -->
+    <string name="crowd_reports_title">Crowd-Sourced Safety Feed</string>
+    <string name="filter_all">All</string>
+    <string name="filter_lighting">Lighting</string>
+    <string name="filter_hazard">Hazards</string>
+    <string name="filter_safe_havens">Safe Havens</string>
+    <string name="report_hazard_btn">Report New Hazard</string>
+    <string name="report_category">Category</string>
+    <string name="report_title_hint">Short title (e.g., Broken street lamp on 4th Ave)</string>
+    <string name="report_desc_hint">Describe the safety concern or observation...</string>
+    <string name="report_severity">Risk Level</string>
+    <string name="report_submit">Submit Community Report</string>
+    <string name="confirm_upvote">Confirm (+1)</string>
+
+    <!-- Contacts -->
+    <string name="contacts_title">Trusted Guardians</string>
+    <string name="contacts_subtitle">These contacts will receive immediate SOS alerts with your live GPS location</string>
+    <string name="add_contact_btn">Add Emergency Guardian</string>
+    <string name="contact_name">Name</string>
+    <string name="contact_phone">Phone Number</string>
+    <string name="contact_relation">Relationship (e.g. Mom, Partner, Roommate)</string>
+    <string name="contact_save">Save Guardian</string>
+    <string name="no_contacts_yet">No emergency guardians added yet. Please add at least one person you trust.</string>
+</resources>
