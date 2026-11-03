@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
@@ -29,6 +30,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -72,7 +74,8 @@ import kotlinx.coroutines.tasks.await
 
 @Composable
 fun AuthScreen(
-  onAuthSuccess: () -> Unit
+  onAuthSuccess: () -> Unit,
+  onContinueAsGuest: () -> Unit = {}
 ) {
   val context = LocalContext.current
   val coroutineScope = rememberCoroutineScope()
@@ -212,6 +215,64 @@ fun AuthScreen(
               )
             }
           }
+
+          Spacer(modifier = Modifier.height(16.dp))
+
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+          ) {
+            Box(modifier = Modifier.weight(1f).height(1.dp).background(MidnightBorder))
+            Text(
+              text = "OR",
+              color = Color(0xFF64748B),
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold,
+              modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            Box(modifier = Modifier.weight(1f).height(1.dp).background(MidnightBorder))
+          }
+
+          Spacer(modifier = Modifier.height(16.dp))
+
+          OutlinedButton(
+            onClick = onContinueAsGuest,
+            colors = ButtonDefaults.outlinedButtonColors(
+              contentColor = AmberGlow
+            ),
+            border = CardDefaults.outlinedCardBorder().copy(
+              brush = androidx.compose.ui.graphics.SolidColor(AmberGlow)
+            ),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(50.dp)
+              .testTag("continue_as_guest_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.DirectionsWalk,
+              contentDescription = null,
+              tint = AmberGlow,
+              modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+              text = "Free Guest Access (No Sign-In)",
+              fontWeight = FontWeight.Bold,
+              fontSize = 14.sp,
+              color = AmberGlow
+            )
+          }
+
+          Spacer(modifier = Modifier.height(10.dp))
+
+          Text(
+            text = "⚡ Instant access to safe route mapping, 24/7 Safe Havens, and offline SOS tools on this device.",
+            color = Color(0xFF64748B),
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            lineHeight = 15.sp
+          )
 
           if (errorMessage != null) {
             Spacer(modifier = Modifier.height(12.dp))

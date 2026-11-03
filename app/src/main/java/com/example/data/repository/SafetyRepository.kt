@@ -4,6 +4,7 @@ import com.example.data.db.EmergencyContactDao
 import com.example.data.db.SafetyReportDao
 import com.example.data.model.CityDestination
 import com.example.data.model.EmergencyContactEntity
+import com.example.data.model.FirestoreRealtimeAlert
 import com.example.data.model.HazardZone
 import com.example.data.model.NavigationStep
 import com.example.data.model.ReportCategory
@@ -191,6 +192,28 @@ class SafetyRepository(
         isOpenNow = true,
         staffPresent = true,
         phone = "555-0144"
+      ),
+      SafeHaven(
+        id = "sh_5",
+        name = "Civic Center Transit Hub (24/7 Security)",
+        type = SafeHavenType.CAMPUS_SECURITY,
+        address = "300 Civic Plaza",
+        lat = 37.7770,
+        lng = -122.4155,
+        isOpenNow = true,
+        staffPresent = true,
+        phone = "555-0160"
+      ),
+      SafeHaven(
+        id = "sh_6",
+        name = "Memorial Hospital 24/7 ER",
+        type = SafeHavenType.HOSPITAL_ER,
+        address = "600 Medical Way",
+        lat = 37.7795,
+        lng = -122.4125,
+        isOpenNow = true,
+        staffPresent = true,
+        phone = "911"
       )
     )
   }
@@ -377,5 +400,33 @@ class SafetyRepository(
     )
 
     return listOf(safestRoute, wellLitRoute, directRoute)
+  }
+
+  // Seed / Offline Realtime Alerts for Guest Mode and fallback
+  fun getLocalSeedRealtimeAlerts(): List<FirestoreRealtimeAlert> {
+    return listOf(
+      FirestoreRealtimeAlert(
+        id = "alert_seed_1",
+        title = "Active Police Activity",
+        message = "Officers investigating reported vehicle break-in. Avoid 6th & Elm alleyway.",
+        type = "SUDDEN_POLICE_ACTIVITY",
+        severity = "CRITICAL",
+        latitude = 37.7758,
+        longitude = -122.4178,
+        radiusMeters = 200.0,
+        affectedStreet = "Elm St & 6th"
+      ),
+      FirestoreRealtimeAlert(
+        id = "alert_seed_2",
+        title = "Streetlamp Power Outage",
+        message = "Multiple overhead lamps dark on 5th Street corridor. Use Beacon Blvd instead.",
+        type = "STREET_BLACKOUT",
+        severity = "HIGH",
+        latitude = 37.7735,
+        longitude = -122.4190,
+        radiusMeters = 160.0,
+        affectedStreet = "5th St Between Oak & Market"
+      )
+    )
   }
 }

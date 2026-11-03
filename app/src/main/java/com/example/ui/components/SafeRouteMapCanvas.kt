@@ -57,6 +57,13 @@ import com.example.ui.theme.MidnightCard
 import com.example.ui.theme.SafeHavenGreen
 import com.example.ui.theme.SafetyTeal
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import com.example.service.RealtimeAlertMonitor
+
 @Composable
 fun SafeRouteMapCanvas(
   selectedRoute: RouteOption?,
@@ -72,10 +79,12 @@ fun SafeRouteMapCanvas(
   showSafeHavens: Boolean,
   showCrowdReports: Boolean,
   showRealtimeAlerts: Boolean = true,
+  onSafeHavenClick: ((SafeHaven) -> Unit)? = null,
   modifier: Modifier = Modifier
 ) {
   var zoomScale by remember { mutableFloatStateOf(1f) }
   var panOffset by remember { mutableStateOf(Offset.Zero) }
+  var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
   // Pulsing animation for safety beacon & alert areas
   val infiniteTransition = rememberInfiniteTransition(label = "map_pulse")
@@ -102,6 +111,43 @@ fun SafeRouteMapCanvas(
     modifier = modifier
       .fillMaxSize()
       .background(MidnightBlack)
+      .onSizeChanged { canvasSize = it }
+      .pointerInput(safeHavens, zoomScale, panOffset, canvasSize) {
+        awaitEachGesture {
+          val down = awaitFirstDown(requireUnconsumed = false)
+          val up = waitForUpOrCancellation()
+          if (up != null && onSafeHavenClick != null && canvasSize.width > 0 && canvasSize.height > 0) {
+            val tapPos = up.position
+            val dxTotal = tapPos.x - down.position.x
+            val dyTotal = tapPos.y - down.position.y
+            if (dxTotal * dxTotal + dyTotal * dyTotal < 625f) { // Tap gesture (< 25px movement)
+              val w = canvasSize.width.toFloat()
+              val h = canvasSize.height.toFloat()
+              val cx = (w / 2f) + panOffset.x
+              val cy = (h / 2f) + panOffset.y
+
+              val minLat = 37.7690
+              val maxLat = 37.7835
+              val minLng = -122.4230
+              val maxLng = -122.4080
+
+              val clickedHaven = safeHavens.find { haven ->
+                val normX = ((haven.lng - minLng) / (maxLng - minLng)).toFloat()
+                val normY = 1f - ((haven.lat - minLat) / (maxLat - minLat)).toFloat()
+                val screenX = (normX - 0.5f) * w * 1.35f * zoomScale + cx
+                val screenY = (normY - 0.5f) * h * 1.35f * zoomScale + cy
+                val dx = tapPos.x - screenX
+                val dy = tapPos.y - screenY
+                (dx * dx + dy * dy) <= (38.dp.toPx() * 38.dp.toPx())
+              }
+
+              if (clickedHaven != null) {
+                onSafeHavenClick(clickedHaven)
+              }
+            }
+          }
+        }
+      }
       .pointerInput(Unit) {
         detectTransformGestures { _, pan, zoom, _ ->
           zoomScale = (zoomScale * zoom).coerceIn(0.6f, 3.2f)
@@ -243,35 +289,101 @@ fun SafeRouteMapCanvas(
         }
       }
 
-      // 5. Draw 24/7 Safe Havens (Green shield spots)
+      // 5. Draw 24/7 Safe Havens (Green shield spots & route path highlights)
       if (showSafeHavens) {
+        val routePoints = selectedRoute?.pathPoints ?: emptyList()
+
         safeHavens.forEach { haven ->
           val pos = geoToScreen(haven.lat, haven.lng)
-          // Radiant green safety aura
-          drawCircle(
-            color = SafeHavenGreen.copy(alpha = 0.25f),
-            center = pos,
-            radius = 24.dp.toPx() * zoomScale.coerceIn(0.8f, 1.4f)
-          )
-          drawCircle(
-            color = SafeHavenGreen,
-            center = pos,
-            radius = 12.dp.toPx()
-          )
-          drawCircle(
-            color = Color.White,
-            center = pos,
-            radius = 5.dp.toPx()
-          )
+          val distToRoute = if (routePoints.isNotEmpty()) {
+            RealtimeAlertMonitor.calculateDistanceToRoute(haven.lat, haven.lng, routePoints)
+          } else {
+            Double.MAX_VALUE
+          }
+          val isOnWalkingPath = distToRoute <= 200.0
 
-          drawContext.canvas.nativeCanvas.apply {
-            val paint = android.graphics.Paint().apply {
-              color = android.graphics.Color.parseColor("#34D399")
-              textSize = 26f * zoomScale.coerceIn(0.8f, 1.2f)
-              isFakeBoldText = true
-              textAlign = android.graphics.Paint.Align.CENTER
+          if (isOnWalkingPath && routePoints.isNotEmpty()) {
+            // Draw illuminated connection line between the walking path and the Safe Haven
+            val closestRoutePt = routePoints.minByOrNull {
+              RealtimeAlertMonitor.calculateDistanceMeters(it.lat, it.lng, haven.lat, haven.lng)
             }
-            drawText("🛡️ ${haven.name}", pos.x, pos.y + 36f, paint)
+            if (closestRoutePt != null) {
+              val routePos = geoToScreen(closestRoutePt.lat, closestRoutePt.lng)
+              drawLine(
+                color = SafeHavenGreen.copy(alpha = 0.85f),
+                start = routePos,
+                end = pos,
+                strokeWidth = 3.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 10f))
+              )
+            }
+
+            // Glowing pulsating aura along route
+            drawCircle(
+              color = SafeHavenGreen.copy(alpha = pulseAlpha * 0.75f),
+              center = pos,
+              radius = 34.dp.toPx() * zoomScale.coerceIn(0.8f, 1.4f) * pulseRadiusFraction
+            )
+            drawCircle(
+              color = SafeHavenGreen.copy(alpha = 0.35f),
+              center = pos,
+              radius = 22.dp.toPx() * zoomScale.coerceIn(0.8f, 1.4f)
+            )
+            drawCircle(
+              color = SafeHavenGreen,
+              center = pos,
+              radius = 13.dp.toPx()
+            )
+            drawCircle(
+              color = Color.White,
+              center = pos,
+              radius = 6.dp.toPx()
+            )
+
+            drawContext.canvas.nativeCanvas.apply {
+              val titlePaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#34D399")
+                textSize = 27f * zoomScale.coerceIn(0.8f, 1.2f)
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.CENTER
+              }
+              drawText("🛡️ ${haven.name}", pos.x, pos.y + 36f, titlePaint)
+
+              val badgePaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#A7F3D0")
+                textSize = 20f * zoomScale.coerceIn(0.8f, 1.1f)
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.CENTER
+              }
+              drawText("★ SAFE HAVEN (${distToRoute.toInt()}m)", pos.x, pos.y + 58f, badgePaint)
+            }
+          } else {
+            // Standard Safe Haven off current path
+            drawCircle(
+              color = SafeHavenGreen.copy(alpha = 0.22f),
+              center = pos,
+              radius = 20.dp.toPx() * zoomScale.coerceIn(0.8f, 1.4f)
+            )
+            drawCircle(
+              color = SafeHavenGreen,
+              center = pos,
+              radius = 11.dp.toPx()
+            )
+            drawCircle(
+              color = Color.White,
+              center = pos,
+              radius = 4.dp.toPx()
+            )
+
+            drawContext.canvas.nativeCanvas.apply {
+              val paint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#6EE7B7")
+                textSize = 24f * zoomScale.coerceIn(0.8f, 1.2f)
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.CENTER
+              }
+              drawText("🛡️ ${haven.name}", pos.x, pos.y + 34f, paint)
+            }
           }
         }
       }

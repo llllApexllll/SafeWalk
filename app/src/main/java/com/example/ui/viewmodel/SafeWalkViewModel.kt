@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -78,9 +79,10 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
     if (uid.isBlank()) emptyList() else reports.filter { it.userId == uid }
   }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-  // Real-time Safety Alerts
+  // Real-time Safety Alerts (uses local seed alerts in guest mode or until cloud alerts stream in)
   val realtimeAlerts: StateFlow<List<FirestoreRealtimeAlert>> = firestoreRepo.observeRealtimeAlerts()
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    .map { list -> if (list.isNotEmpty()) list else localRepo.getLocalSeedRealtimeAlerts() }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), localRepo.getLocalSeedRealtimeAlerts())
 
   // Emergency Guardians
   val localContacts: StateFlow<List<EmergencyContactEntity>> = localRepo.allContacts
@@ -277,6 +279,32 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
       _userLng.value,
       route
     )
+  }
+
+  fun getSafeHavensAlongRoute(route: RouteOption? = _selectedRoute.value): List<Pair<SafeHaven, Int>> {
+    val r = route ?: return emptyList()
+    val points = r.pathPoints
+    if (points.isEmpty()) return emptyList()
+
+    return safeHavens.mapNotNull { haven ->
+      val distMeters = RealtimeAlertMonitor.calculateDistanceToRoute(haven.lat, haven.lng, points)
+      if (distMeters <= 220.0) { // within 220 meters of the walking path
+        haven to distMeters.toInt()
+      } else null
+    }.sortedBy { it.second }
+  }
+
+  fun navigateToSafeHaven(haven: SafeHaven) {
+    val destination = CityDestination(
+      id = "haven_${haven.id}",
+      name = "🛡️ ${haven.name}",
+      category = "Safe Haven",
+      address = haven.address,
+      lat = haven.lat,
+      lng = haven.lng
+    )
+    selectDestination(destination)
+    startNavigation()
   }
 
   fun startNavigation() {

@@ -93,10 +93,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainRoot() {
   var currentUser by remember { mutableStateOf<FirebaseUser?>(Firebase.auth.currentUser) }
+  var isGuestMode by remember { mutableStateOf(false) }
 
   DisposableEffect(Unit) {
     val listener = FirebaseAuth.AuthStateListener { auth ->
       currentUser = auth.currentUser
+      if (auth.currentUser != null) {
+        isGuestMode = false
+      }
     }
     Firebase.auth.addAuthStateListener(listener)
     onDispose {
@@ -104,10 +108,11 @@ fun MainRoot() {
     }
   }
 
-  if (currentUser == null) {
+  if (currentUser == null && !isGuestMode) {
     MyApplicationTheme {
       AuthScreen(
-        onAuthSuccess = { currentUser = Firebase.auth.currentUser }
+        onAuthSuccess = { currentUser = Firebase.auth.currentUser },
+        onContinueAsGuest = { isGuestMode = true }
       )
     }
   } else {
@@ -117,7 +122,16 @@ fun MainRoot() {
     MyApplicationTheme(themeMode = themeMode) {
       SafeWalkApp(
         viewModel = viewModel,
-        onSignOut = { currentUser = null }
+        isGuest = isGuestMode && currentUser == null,
+        onSignOut = {
+          isGuestMode = false
+          currentUser = null
+          Firebase.auth.signOut()
+        },
+        onRequestSignIn = {
+          isGuestMode = false
+          currentUser = null
+        }
       )
     }
   }
@@ -126,7 +140,9 @@ fun MainRoot() {
 @Composable
 fun SafeWalkApp(
   viewModel: SafeWalkViewModel,
-  onSignOut: () -> Unit
+  isGuest: Boolean = false,
+  onSignOut: () -> Unit,
+  onRequestSignIn: () -> Unit = {}
 ) {
   val context = LocalContext.current
   var currentTab by remember { mutableStateOf(SafeWalkTab.MAP) }
@@ -310,7 +326,9 @@ fun SafeWalkApp(
         SafeWalkTab.PROFILE -> {
           ProfileScreen(
             viewModel = viewModel,
-            onSignOut = onSignOut
+            onSignOut = onSignOut,
+            isGuest = isGuest,
+            onRequestSignIn = onRequestSignIn
           )
         }
       }

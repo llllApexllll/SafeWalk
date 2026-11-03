@@ -50,6 +50,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,7 +65,10 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.CityDestination
 import com.example.data.model.RouteOption
 import com.example.data.model.RouteType
+import com.example.data.model.SafeHaven
 import com.example.data.model.SeverityLevel
+import com.example.service.RealtimeAlertMonitor
+import com.example.ui.components.SafeHavenDetailsBottomSheet
 import com.example.ui.components.SafeRouteMapCanvas
 import com.example.ui.components.SosActiveOverlay
 import com.example.ui.components.SosCountdownDialog
@@ -103,6 +109,11 @@ fun SafeMapScreen(
   val isSirenActive by viewModel.toolkit.isSirenActive.collectAsState()
   val isStrobeActive by viewModel.toolkit.isStrobeActive.collectAsState()
 
+  var inspectSafeHaven by remember { mutableStateOf<SafeHaven?>(null) }
+  val safeHavensAlongRoute = remember(selectedRoute, viewModel.safeHavens) {
+    viewModel.getSafeHavensAlongRoute(selectedRoute)
+  }
+
   Box(
     modifier = modifier
       .fillMaxSize()
@@ -124,6 +135,7 @@ fun SafeMapScreen(
       showSafeHavens = mapLayers.showSafeHavens,
       showCrowdReports = mapLayers.showCrowdReports,
       showRealtimeAlerts = mapLayers.showRealtimeAlerts,
+      onSafeHavenClick = { inspectSafeHaven = it },
       modifier = Modifier.fillMaxSize()
     )
 
@@ -591,7 +603,86 @@ fun SafeMapScreen(
               }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            // Safe Havens along calculated walking path
+            if (safeHavensAlongRoute.isNotEmpty()) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(
+                    imageVector = Icons.Default.Shield,
+                    contentDescription = null,
+                    tint = SafeHavenGreen,
+                    modifier = Modifier.size(16.dp)
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text(
+                    text = "SAFE HAVENS ALONG PATH (${safeHavensAlongRoute.size})",
+                    color = SafeHavenGreen,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
+                  )
+                }
+                Text(
+                  text = "Tap to Inspect / Divert",
+                  color = Color(0xFF94A3B8),
+                  fontSize = 10.sp
+                )
+              }
+
+              Spacer(modifier = Modifier.height(6.dp))
+
+              Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .horizontalScroll(rememberScrollState())
+              ) {
+                safeHavensAlongRoute.forEach { (haven, dist) ->
+                  Surface(
+                    color = Color(0xFF064E3B).copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = CardDefaults.outlinedCardBorder().copy(
+                      brush = androidx.compose.ui.graphics.SolidColor(SafeHavenGreen)
+                    ),
+                    modifier = Modifier
+                      .clickable { inspectSafeHaven = haven }
+                      .testTag("haven_path_chip_${haven.id}")
+                  ) {
+                    Row(
+                      verticalAlignment = Alignment.CenterVertically,
+                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                      Text(text = "🛡️", fontSize = 12.sp)
+                      Spacer(modifier = Modifier.width(4.dp))
+                      Text(
+                        text = haven.name,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp
+                      )
+                      Spacer(modifier = Modifier.width(6.dp))
+                      Surface(
+                        color = SafeHavenGreen,
+                        shape = RoundedCornerShape(6.dp)
+                      ) {
+                        Text(
+                          text = "${dist}m",
+                          color = MidnightBlack,
+                          fontWeight = FontWeight.Bold,
+                          fontSize = 9.sp,
+                          modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                      }
+                    }
+                  }
+                }
+              }
+
+              Spacer(modifier = Modifier.height(10.dp))
+            }
 
             // Route Options Cards (Safest vs Well-Lit vs Direct)
             Row(
@@ -748,6 +839,26 @@ fun SafeMapScreen(
       SosCountdownDialog(
         countdown = sosCountdown,
         onCancel = { viewModel.cancelSosCountdown() }
+      )
+    }
+
+    // Safe Haven Details & Emergency Divert Bottom Sheet
+    inspectSafeHaven?.let { haven ->
+      val isOnActiveRoute = selectedRoute?.let { route ->
+        RealtimeAlertMonitor.calculateDistanceToRoute(haven.lat, haven.lng, route.pathPoints) <= 220.0
+      } ?: false
+
+      SafeHavenDetailsBottomSheet(
+        haven = haven,
+        isOnActiveRoute = isOnActiveRoute,
+        onDismiss = { inspectSafeHaven = null },
+        onCallHaven = { phone ->
+          viewModel.toolkit.dialEmergencyNumber(phone)
+        },
+        onNavigateToHaven = { targetHaven ->
+          inspectSafeHaven = null
+          viewModel.navigateToSafeHaven(targetHaven)
+        }
       )
     }
   }

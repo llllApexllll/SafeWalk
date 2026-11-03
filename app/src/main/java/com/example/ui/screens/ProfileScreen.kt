@@ -29,12 +29,14 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocalHospital
+import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.Nightlight
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PhoneIphone
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -91,6 +93,8 @@ import com.google.firebase.auth.auth
 fun ProfileScreen(
   viewModel: SafeWalkViewModel,
   onSignOut: () -> Unit,
+  isGuest: Boolean = false,
+  onRequestSignIn: () -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
@@ -104,7 +108,12 @@ fun ProfileScreen(
 
   val currentUser = Firebase.auth.currentUser
 
-  var displayName by remember(userProfile) { mutableStateOf(userProfile?.displayName ?: (currentUser?.displayName ?: "SafeWalk User")) }
+  var displayName by remember(userProfile, isGuest) {
+    mutableStateOf(
+      if (isGuest) "Guest Pedestrian"
+      else (userProfile?.displayName ?: (currentUser?.displayName ?: "SafeWalk User"))
+    )
+  }
   var phoneNumber by remember(userProfile) { mutableStateOf(userProfile?.phoneNumber ?: "") }
   var bloodType by remember(userProfile) { mutableStateOf(userProfile?.bloodType ?: "O+") }
   var physicalCapacity by remember(userProfile) { mutableStateOf(userProfile?.physicalCapacity ?: "Level 1 (Full Mobility)") }
@@ -165,18 +174,18 @@ fun ProfileScreen(
                   color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                  text = currentUser?.email ?: "Google Account Connected",
+                  text = if (isGuest) "Local Device Storage" else (currentUser?.email ?: "Google Account Connected"),
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                   fontSize = 12.sp
                 )
                 Surface(
-                  color = SafeHavenGreen.copy(alpha = 0.15f),
+                  color = if (isGuest) AmberGlow.copy(alpha = 0.2f) else SafeHavenGreen.copy(alpha = 0.15f),
                   shape = RoundedCornerShape(6.dp),
                   modifier = Modifier.padding(top = 4.dp)
                 ) {
                   Text(
-                    text = "Google Account Active",
-                    color = SafeHavenGreen,
+                    text = if (isGuest) "Free Guest Mode" else "Google Account Active",
+                    color = if (isGuest) AmberGlow else SafeHavenGreen,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -185,22 +194,76 @@ fun ProfileScreen(
               }
             }
 
-            IconButton(
-              onClick = {
-                signOutUser(
-                  context = context,
-                  credentialManager = credentialManager,
-                  onSignOutComplete = onSignOut,
-                  scope = coroutineScope
+            if (isGuest) {
+              IconButton(
+                onClick = onRequestSignIn,
+                modifier = Modifier.testTag("guest_connect_account_button")
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Login,
+                  contentDescription = "Sign In with Google",
+                  tint = SafetyTeal
                 )
-              },
-              modifier = Modifier.testTag("sign_out_button")
-            ) {
-              Icon(
-                imageVector = Icons.Default.Logout,
-                contentDescription = "Sign Out",
-                tint = MaterialTheme.colorScheme.error
+              }
+            } else {
+              IconButton(
+                onClick = {
+                  signOutUser(
+                    context = context,
+                    credentialManager = credentialManager,
+                    onSignOutComplete = onSignOut,
+                    scope = coroutineScope
+                  )
+                },
+                modifier = Modifier.testTag("sign_out_button")
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Logout,
+                  contentDescription = "Sign Out",
+                  tint = MaterialTheme.colorScheme.error
+                )
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Guest Upgrade Banner if in Guest Mode
+    if (isGuest) {
+      item {
+        Card(
+          colors = CardDefaults.cardColors(containerColor = Color(0xFF452B00).copy(alpha = 0.85f)),
+          shape = RoundedCornerShape(16.dp),
+          border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(AmberGlow)),
+          modifier = Modifier.fillMaxWidth().testTag("guest_upgrade_banner")
+        ) {
+          Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(imageVector = Icons.Default.Shield, contentDescription = null, tint = AmberGlow, modifier = Modifier.size(18.dp))
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                text = "Guest Mode Active",
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 13.sp
               )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+              text = "You have full access to safest routes, 24/7 Safe Havens, and emergency SOS alarms on this device. Sign in with Google to enable cross-device backup and community sync.",
+              color = Color(0xFFFEF3C7),
+              fontSize = 11.sp,
+              lineHeight = 15.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+              onClick = onRequestSignIn,
+              colors = ButtonDefaults.buttonColors(containerColor = AmberGlow, contentColor = MidnightBlack),
+              shape = RoundedCornerShape(10.dp),
+              modifier = Modifier.fillMaxWidth().height(38.dp).testTag("guest_sign_in_now_button")
+            ) {
+              Text("Sign in with Google", fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
           }
         }
@@ -575,6 +638,79 @@ fun ProfileScreen(
                 }
               }
               Spacer(modifier = Modifier.height(6.dp))
+            }
+          }
+        }
+      }
+    }
+
+    // 6. Cross-Platform Availability: Android & iPhone
+    item {
+      Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline)),
+        modifier = Modifier.fillMaxWidth().testTag("cross_platform_card")
+      ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+              imageVector = Icons.Default.PhoneIphone,
+              contentDescription = null,
+              tint = SafetyTeal,
+              modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+              text = "Multi-Platform: Android & iPhone",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = MaterialTheme.colorScheme.onSurface
+            )
+          }
+
+          Spacer(modifier = Modifier.height(10.dp))
+
+          Text(
+            text = "SafeWalk is built with Kotlin, Jetpack Compose, and Firebase Cloud Services. The modern declarative architecture enables multi-device operation:",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = 16.sp
+          )
+
+          Spacer(modifier = Modifier.height(10.dp))
+
+          Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+              Text(
+                text = "📱 Android (Current Runtime)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = SafeHavenGreen
+              )
+              Text(
+                text = "Runs natively via Android runtime with hardware sensors, camera strobe, and audio siren.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+
+              Spacer(modifier = Modifier.height(8.dp))
+
+              Text(
+                text = "🍏 iPhone (iOS Deployment)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = AmberGlow
+              )
+              Text(
+                text = "Export the codebase via AI Studio Settings ('Download ZIP'). The declarative Compose UI and shared Kotlin models map directly to Compose Multiplatform (CMP) for iOS target compilation in Xcode.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
             }
           }
         }

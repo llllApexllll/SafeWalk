@@ -126,28 +126,30 @@ class RealtimeAlertMonitor(private val context: Context) {
     }
   }
 
-  // Haversine distance in meters
-  private fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-    val r = 6371000.0 // Earth radius in meters
-    val dLat = Math.toRadians(lat2 - lat1)
-    val dLon = Math.toRadians(lon2 - lon1)
-    val a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-        sin(dLon / 2) * sin(dLon / 2)
-    val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return r * c
-  }
-
-  private fun calculateDistanceToRoute(lat: Double, lng: Double, routePoints: List<RoutePoint>): Double {
-    if (routePoints.isEmpty()) return Double.MAX_VALUE
-    var minDistance = Double.MAX_VALUE
-    for (pt in routePoints) {
-      val d = calculateDistanceMeters(lat, lng, pt.lat, pt.lng)
-      if (d < minDistance) {
-        minDistance = d
-      }
+  companion object {
+    // Haversine distance in meters
+    fun calculateDistanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+      val r = 6371000.0 // Earth radius in meters
+      val dLat = Math.toRadians(lat2 - lat1)
+      val dLon = Math.toRadians(lon2 - lon1)
+      val a = sin(dLat / 2) * sin(dLat / 2) +
+          cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+          sin(dLon / 2) * sin(dLon / 2)
+      val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+      return r * c
     }
-    return minDistance
+
+    fun calculateDistanceToRoute(lat: Double, lng: Double, routePoints: List<RoutePoint>): Double {
+      if (routePoints.isEmpty()) return Double.MAX_VALUE
+      var minDistance = Double.MAX_VALUE
+      for (pt in routePoints) {
+        val d = calculateDistanceMeters(lat, lng, pt.lat, pt.lng)
+        if (d < minDistance) {
+          minDistance = d
+        }
+      }
+      return minDistance
+    }
   }
 
   private fun Double.format(digits: Int) = String.format("%.${digits}f", this)

@@ -194,6 +194,7 @@ class FirestoreSafetyRepository(private val db: FirebaseFirestore) {
 
   // --- Real-time Observe Community Reports ---
   fun observeCommunityReports(): Flow<List<FirestoreCommunityReport>> {
+    if (auth.currentUser == null) return flow { emit(emptyList()) }
     val path = "community_reports"
     return db.collection(path)
       .snapshots()
@@ -206,6 +207,7 @@ class FirestoreSafetyRepository(private val db: FirebaseFirestore) {
 
   // --- Real-time Observe Realtime Safety Alerts ---
   fun observeRealtimeAlerts(): Flow<List<FirestoreRealtimeAlert>> {
+    if (auth.currentUser == null) return flow { emit(emptyList()) }
     val path = "realtime_alerts"
     return db.collection(path)
       .snapshots()
