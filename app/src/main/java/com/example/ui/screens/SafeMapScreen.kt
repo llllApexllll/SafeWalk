@@ -30,11 +30,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsWalk
-import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Navigation
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -52,9 +50,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,12 +62,13 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.CityDestination
 import com.example.data.model.RouteOption
 import com.example.data.model.RouteType
+import com.example.data.model.SeverityLevel
 import com.example.ui.components.SafeRouteMapCanvas
 import com.example.ui.components.SosActiveOverlay
 import com.example.ui.components.SosCountdownDialog
 import com.example.ui.theme.AlertCrimson
+import com.example.ui.theme.AlertCrimsonBg
 import com.example.ui.theme.AmberGlow
-import com.example.ui.theme.ElectricBlue
 import com.example.ui.theme.MidnightBlack
 import com.example.ui.theme.MidnightBorder
 import com.example.ui.theme.MidnightCard
@@ -96,8 +92,10 @@ fun SafeMapScreen(
   val userLat by viewModel.userLat.collectAsState()
   val userLng by viewModel.userLng.collectAsState()
   val mapLayers by viewModel.mapLayers.collectAsState()
-  val filteredReports by viewModel.filteredReports.collectAsState()
-  val contacts by viewModel.allContacts.collectAsState()
+  val localReports by viewModel.localReports.collectAsState()
+  val realtimeAlerts by viewModel.realtimeAlerts.collectAsState()
+  val topRouteAlert by viewModel.topRouteAlert.collectAsState()
+  val contacts by viewModel.localContacts.collectAsState()
 
   val isSosActive by viewModel.isSosActive.collectAsState()
   val isSosCountingDown by viewModel.isSosCountingDown.collectAsState()
@@ -111,7 +109,7 @@ fun SafeMapScreen(
       .background(MidnightBlack)
       .testTag("safe_map_screen")
   ) {
-    // 1. Vector Interactive Map
+    // 1. Vector Interactive Map with Route & Hazards
     SafeRouteMapCanvas(
       selectedRoute = selectedRoute,
       destination = selectedDestination,
@@ -119,20 +117,22 @@ fun SafeMapScreen(
       userLng = userLng,
       hazardZones = viewModel.hazardZones,
       safeHavens = viewModel.safeHavens,
-      crowdReports = filteredReports,
+      crowdReports = localReports,
+      realtimeAlerts = realtimeAlerts,
       showLighting = mapLayers.showLighting,
       showCrimeZones = mapLayers.showCrimeZones,
       showSafeHavens = mapLayers.showSafeHavens,
       showCrowdReports = mapLayers.showCrowdReports,
+      showRealtimeAlerts = mapLayers.showRealtimeAlerts,
       modifier = Modifier.fillMaxSize()
     )
 
-    // 2. Top Bar: Title & SOS Quick Trigger
+    // 2. Top Bar: Title, SOS Trigger & Real-time Alert Banner
     Column(
       modifier = Modifier
         .align(Alignment.TopCenter)
         .fillMaxWidth()
-        .padding(horizontal = 16.dp, vertical = 12.dp)
+        .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
       Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -141,7 +141,7 @@ fun SafeMapScreen(
       ) {
         // App identity pill
         Surface(
-          color = MidnightSurface.copy(alpha = 0.92f),
+          color = MidnightSurface.copy(alpha = 0.94f),
           shape = RoundedCornerShape(20.dp),
           border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder))
         ) {
@@ -158,13 +158,13 @@ fun SafeMapScreen(
             Spacer(modifier = Modifier.width(8.dp))
             Column {
               Text(
-                text = "SafeWalk",
+                text = "SafeWalk Live",
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp
               )
               Text(
-                text = "Night Route Guardian",
+                text = "Real-Time Hazard Guardian",
                 color = SafetyTeal,
                 fontSize = 11.sp
               )
@@ -192,7 +192,7 @@ fun SafeMapScreen(
         }
       }
 
-      Spacer(modifier = Modifier.height(10.dp))
+      Spacer(modifier = Modifier.height(8.dp))
 
       // Layer Filter Chips Floating Row
       Row(
@@ -202,23 +202,23 @@ fun SafeMapScreen(
           .horizontalScroll(rememberScrollState())
       ) {
         FilterChip(
+          selected = mapLayers.showRealtimeAlerts,
+          onClick = { viewModel.toggleLayer("alerts") },
+          label = { Text("🚨 Live Alerts (${realtimeAlerts.size})", fontSize = 12.sp) },
+          colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = AlertCrimson,
+            selectedLabelColor = Color.White,
+            containerColor = MidnightSurface.copy(alpha = 0.85f),
+            labelColor = Color(0xFFE2E8F0)
+          )
+        )
+        FilterChip(
           selected = mapLayers.showLighting,
           onClick = { viewModel.toggleLayer("lighting") },
           label = { Text("💡 Streetlamps", fontSize = 12.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = AmberGlow,
             selectedLabelColor = MidnightBlack,
-            containerColor = MidnightSurface.copy(alpha = 0.85f),
-            labelColor = Color(0xFFE2E8F0)
-          )
-        )
-        FilterChip(
-          selected = mapLayers.showCrimeZones,
-          onClick = { viewModel.toggleLayer("crime") },
-          label = { Text("⚠️ High Crime", fontSize = 12.sp) },
-          colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = AlertCrimson,
-            selectedLabelColor = Color.White,
             containerColor = MidnightSurface.copy(alpha = 0.85f),
             labelColor = Color(0xFFE2E8F0)
           )
@@ -237,7 +237,7 @@ fun SafeMapScreen(
         FilterChip(
           selected = mapLayers.showCrowdReports,
           onClick = { viewModel.toggleLayer("reports") },
-          label = { Text("📍 Crowd Alerts", fontSize = 12.sp) },
+          label = { Text("📍 Crowd Reports", fontSize = 12.sp) },
           colors = FilterChipDefaults.filterChipColors(
             selectedContainerColor = SafetyTeal,
             selectedLabelColor = MidnightBlack,
@@ -245,6 +245,84 @@ fun SafeMapScreen(
             labelColor = Color(0xFFE2E8F0)
           )
         )
+      }
+
+      // Prioritized Real-Time Hazard Alert Banner (Push Notification card)
+      topRouteAlert?.let { alertItem ->
+        Spacer(modifier = Modifier.height(8.dp))
+        val isCritical = alertItem.alert.severity == SeverityLevel.CRITICAL.name
+        val bannerBg = if (isCritical) AlertCrimsonBg else Color(0xFF452B00)
+        val bannerBorder = if (isCritical) AlertCrimson else AmberGlow
+
+        Card(
+          colors = CardDefaults.cardColors(containerColor = bannerBg.copy(alpha = 0.95f)),
+          shape = RoundedCornerShape(16.dp),
+          border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(bannerBorder)),
+          modifier = Modifier
+            .fillMaxWidth()
+            .testTag("top_route_alert_banner")
+        ) {
+          Row(
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier.padding(12.dp)
+          ) {
+            Icon(
+              imageVector = if (isCritical) Icons.Default.Warning else Icons.Default.NotificationsActive,
+              contentDescription = null,
+              tint = if (isCritical) AlertCrimson else AmberGlow,
+              modifier = Modifier
+                .size(24.dp)
+                .padding(top = 2.dp)
+            )
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Text(
+                  text = alertItem.alert.title,
+                  fontWeight = FontWeight.Bold,
+                  color = Color.White,
+                  fontSize = 13.sp
+                )
+                Surface(
+                  color = if (isCritical) AlertCrimson else AmberGlow,
+                  shape = RoundedCornerShape(6.dp)
+                ) {
+                  Text(
+                    text = alertItem.proximityLabel,
+                    color = MidnightBlack,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                  )
+                }
+              }
+
+              Spacer(modifier = Modifier.height(3.dp))
+
+              Text(
+                text = alertItem.alert.message,
+                color = Color(0xFFE2E8F0),
+                fontSize = 11.sp,
+                lineHeight = 15.sp
+              )
+
+              Spacer(modifier = Modifier.height(4.dp))
+
+              Text(
+                text = "👉 ${alertItem.recommendedAction}",
+                color = if (isCritical) Color(0xFFFCA5A5) else Color(0xFFFEF3C7),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.sp
+              )
+            }
+          }
+        }
       }
 
       // Active SOS Warning Overlay
@@ -308,7 +386,7 @@ fun SafeMapScreen(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                   Text(
-                    text = "SAFE NAVIGATION ACTIVE",
+                    text = "SAFE REAL-TIME NAVIGATION ACTIVE",
                     color = SafetyTeal,
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp
@@ -452,7 +530,7 @@ fun SafeMapScreen(
             ) {
               Column {
                 Text(
-                  text = "WALKING DESTINATION",
+                  text = "SAFE DESTINATION",
                   color = Color(0xFF94A3B8),
                   fontSize = 11.sp,
                   fontWeight = FontWeight.Bold
@@ -477,7 +555,7 @@ fun SafeMapScreen(
               ) {
                 Icon(imageVector = Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Report Spot", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("Report Hazard", fontSize = 11.sp, fontWeight = FontWeight.Bold)
               }
             }
 
@@ -513,7 +591,7 @@ fun SafeMapScreen(
               }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Route Options Cards (Safest vs Well-Lit vs Direct)
             Row(

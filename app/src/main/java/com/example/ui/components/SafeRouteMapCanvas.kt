@@ -41,6 +41,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.data.model.CityDestination
+import com.example.data.model.FirestoreRealtimeAlert
 import com.example.data.model.HazardZone
 import com.example.data.model.RouteOption
 import com.example.data.model.RoutePoint
@@ -65,10 +66,12 @@ fun SafeRouteMapCanvas(
   hazardZones: List<HazardZone>,
   safeHavens: List<SafeHaven>,
   crowdReports: List<SafetyReportEntity>,
+  realtimeAlerts: List<FirestoreRealtimeAlert> = emptyList(),
   showLighting: Boolean,
   showCrimeZones: Boolean,
   showSafeHavens: Boolean,
   showCrowdReports: Boolean,
+  showRealtimeAlerts: Boolean = true,
   modifier: Modifier = Modifier
 ) {
   var zoomScale by remember { mutableFloatStateOf(1f) }
@@ -307,6 +310,40 @@ fun SafeRouteMapCanvas(
             }
             val symbol = if (report.isLightingRelated) "💡 Outage" else "⚠️ Report"
             drawText(symbol, pos.x, pos.y - 14f, paint)
+          }
+        }
+      }
+
+      // 6.5 Draw Realtime Active Alerts (Police Activity, Accidents, Blackouts)
+      if (showRealtimeAlerts) {
+        realtimeAlerts.forEach { alert ->
+          val pos = geoToScreen(alert.latitude, alert.longitude)
+          val alertRadius = (alert.radiusMeters * 0.4f * zoomScale).toFloat() * pulseRadiusFraction
+
+          drawCircle(
+            color = AlertCrimson.copy(alpha = 0.28f),
+            center = pos,
+            radius = alertRadius
+          )
+          drawCircle(
+            color = AlertCrimson,
+            center = pos,
+            radius = 11.dp.toPx()
+          )
+          drawCircle(
+            color = Color.White,
+            center = pos,
+            radius = 4.dp.toPx()
+          )
+
+          drawContext.canvas.nativeCanvas.apply {
+            val paint = android.graphics.Paint().apply {
+              color = android.graphics.Color.parseColor("#F87171")
+              textSize = 26f * zoomScale.coerceIn(0.8f, 1.2f)
+              isFakeBoldText = true
+              textAlign = android.graphics.Paint.Align.CENTER
+            }
+            drawText("🚨 ${alert.title}", pos.x, pos.y - 20f, paint)
           }
         }
       }

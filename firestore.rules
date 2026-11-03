@@ -1,0 +1,137 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isTimestamp(val) {
+      return val is timestamp && val <= request.time;
+    }
+
+    // --- User Profile & Medical Info ---
+    function isValidUserProfile(data, userId) {
+      return data.userId == userId &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             data.themePreference in ['DARK', 'LIGHT', 'SYSTEM', 'AUTO'] &&
+             isTimestamp(data.updatedAt);
+    }
+
+    match /users/{userId}/profile_data/{profileId} {
+      allow read, write: if isOwner(userId) && isValidUserProfile(request.resource.data, userId);
+    }
+
+    // --- Favorite Routes ---
+    function isValidFavoriteRoute(data, userId) {
+      return data.userId == userId &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             data.destinationName is string &&
+             data.routeType is string &&
+             data.safetyScore is number &&
+             isTimestamp(data.createdAt);
+    }
+
+    match /users/{userId}/favorite_routes/{routeId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidFavoriteRoute(request.resource.data, userId);
+      allow update: if isOwner(userId) && isValidFavoriteRoute(request.resource.data, userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // --- Community Safety Reports Validation ---
+    function isValidCommunityReport(data) {
+      return data.userId is string && data.userId.size() > 0 &&
+             data.title is string && data.title.size() >= 3 && data.title.size() <= 120 &&
+             data.category in ['BROKEN_LIGHTING', 'DARK_ALLEY', 'SUSPICIOUS_ACTIVITY', 'HARASSMENT', 'ACCIDENT', 'SUDDEN_POLICE_ACTIVITY', 'ENVIRONMENTAL_HAZARD', 'SAFE_HAVEN_24_7', 'WELL_LIT_CORRIDOR'] &&
+             data.severity in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] &&
+             data.latitude is number && data.latitude >= -90.0 && data.latitude <= 90.0 &&
+             data.longitude is number && data.longitude >= -180.0 && data.longitude <= 180.0 &&
+             data.addressName is string && data.addressName.size() <= 200 &&
+             data.isVerified is bool &&
+             data.verificationStatus in ['PENDING_REVIEW', 'VERIFIED', 'COMMUNITY_CONFIRMED'] &&
+             data.upvotes is number && data.upvotes >= 0 &&
+             data.isAnonymous is bool &&
+             isTimestamp(data.createdAt) &&
+             isTimestamp(data.updatedAt);
+    }
+
+    match /community_reports/{reportId} {
+      allow read: if isAuthenticated();
+
+      allow create: if isAuthenticated() &&
+                    request.resource.data.userId == request.auth.uid &&
+                    isValidCommunityReport(request.resource.data);
+
+      allow update: if isAuthenticated() &&
+                    isValidCommunityReport(request.resource.data) &&
+                    (
+                      resource.data.userId == request.auth.uid ||
+                      (request.resource.data.userId == resource.data.userId &&
+                       request.resource.data.title == resource.data.title &&
+                       request.resource.data.category == resource.data.category &&
+                       request.resource.data.latitude == resource.data.latitude &&
+                       request.resource.data.longitude == resource.data.longitude &&
+                       request.resource.data.createdAt == resource.data.createdAt)
+                    );
+
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // --- Realtime Safety Alerts ---
+    function isValidRealtimeAlert(data) {
+      return data.title is string && data.title.size() > 0 &&
+             data.message is string && data.message.size() > 0 &&
+             data.type in ['SUDDEN_POLICE_ACTIVITY', 'ACCIDENT', 'CRIME_SURGE', 'STREET_BLACKOUT', 'ACTIVE_HAZARD'] &&
+             data.severity in ['CRITICAL', 'HIGH', 'MEDIUM'] &&
+             data.latitude is number && data.longitude is number &&
+             data.radiusMeters is number && data.radiusMeters > 0 &&
+             data.affectedStreet is string &&
+             isTimestamp(data.createdAt);
+    }
+
+    match /realtime_alerts/{alertId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidRealtimeAlert(request.resource.data);
+      allow update, delete: if isAuthenticated() && isValidRealtimeAlert(request.resource.data);
+    }
+
+    // --- User Emergency Contacts ---
+    function isValidEmergencyContact(data, userId) {
+      return data.userId == userId &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.phoneNumber is string && data.phoneNumber.size() >= 3 && data.phoneNumber.size() <= 30 &&
+             data.relationship is string &&
+             data.isPrimary is bool &&
+             data.notifyOnSos is bool &&
+             isTimestamp(data.createdAt) &&
+             isTimestamp(data.updatedAt);
+    }
+
+    match /users/{userId}/emergency_contacts/{contactId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidEmergencyContact(request.resource.data, userId);
+      allow update: if isOwner(userId) && isValidEmergencyContact(request.resource.data, userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // --- User SOS Activation History ---
+    function isValidSosLog(data, userId) {
+      return data.userId == userId &&
+             data.latitude is number &&
+             data.longitude is number &&
+             data.address is string &&
+             data.distressMessage is string &&
+             isTimestamp(data.createdAt);
+    }
+
+    match /users/{userId}/sos_history/{sosId} {
+      allow read, create: if isOwner(userId) && isValidSosLog(request.resource.data, userId);
+      allow update, delete: if false;
+    }
+  }
+}

@@ -1,4 +1,5 @@
 *.iml
+*-debug.log
 .gradle
 .kotlin
 /local.properties

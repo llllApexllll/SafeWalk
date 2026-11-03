@@ -4,17 +4,29 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
+import com.example.data.model.AppThemeMode
 import com.example.data.model.CityDestination
 import com.example.data.model.EmergencyContactEntity
+import com.example.data.model.FirestoreCommunityReport
+import com.example.data.model.FirestoreFavoriteRoute
+import com.example.data.model.FirestoreRealtimeAlert
+import com.example.data.model.FirestoreUserProfile
 import com.example.data.model.HazardZone
 import com.example.data.model.ReportCategory
 import com.example.data.model.RouteOption
+import com.example.data.model.RoutePoint
 import com.example.data.model.RouteType
 import com.example.data.model.SafeHaven
 import com.example.data.model.SafetyReportEntity
 import com.example.data.model.SeverityLevel
+import com.example.data.model.VerificationStatus
+import com.example.data.repository.FirestoreSafetyRepository
 import com.example.data.repository.SafetyRepository
+import com.example.service.PrioritizedAlert
+import com.example.service.RealtimeAlertMonitor
 import com.example.service.SafetyToolkitManager
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,31 +41,57 @@ data class MapLayerSettings(
   val showLighting: Boolean = true,
   val showCrimeZones: Boolean = true,
   val showSafeHavens: Boolean = true,
-  val showCrowdReports: Boolean = true
+  val showCrowdReports: Boolean = true,
+  val showRealtimeAlerts: Boolean = true
 )
 
 class SafeWalkViewModel(application: Application) : AndroidViewModel(application) {
 
   private val database = AppDatabase.getDatabase(application)
-  private val repository = SafetyRepository(database.safetyReportDao(), database.emergencyContactDao())
+  private val localRepo = SafetyRepository(database.safetyReportDao(), database.emergencyContactDao())
+  val firestoreRepo = FirestoreSafetyRepository(application)
+  val alertMonitor = RealtimeAlertMonitor(application)
   val toolkit = SafetyToolkitManager(application)
 
-  val allContacts: StateFlow<List<EmergencyContactEntity>> = repository.allContacts
+  // User Profile & Theme State
+  val userProfile: StateFlow<FirestoreUserProfile?> = firestoreRepo.observeUserProfile()
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+  private val _themeMode = MutableStateFlow(AppThemeMode.DARK)
+  val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
+
+  // Favorite Routes
+  val favoriteRoutes: StateFlow<List<FirestoreFavoriteRoute>> = firestoreRepo.observeFavoriteRoutes()
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  // Community Reports (Cloud & Local)
+  val cloudReports: StateFlow<List<FirestoreCommunityReport>> = firestoreRepo.observeCommunityReports()
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  val localReports: StateFlow<List<SafetyReportEntity>> = localRepo.allReports
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  // Previously reported alerts by current user
+  val myReportedAlerts: StateFlow<List<FirestoreCommunityReport>> = cloudReports.combine(
+    MutableStateFlow(Firebase.auth.currentUser?.uid ?: "")
+  ) { reports, uid ->
+    if (uid.isBlank()) emptyList() else reports.filter { it.userId == uid }
+  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  // Real-time Safety Alerts
+  val realtimeAlerts: StateFlow<List<FirestoreRealtimeAlert>> = firestoreRepo.observeRealtimeAlerts()
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  // Emergency Guardians
+  val localContacts: StateFlow<List<EmergencyContactEntity>> = localRepo.allContacts
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   private val _reportFilterCategory = MutableStateFlow<ReportCategory?>(null)
   val reportFilterCategory: StateFlow<ReportCategory?> = _reportFilterCategory.asStateFlow()
 
-  val filteredReports: StateFlow<List<SafetyReportEntity>> = combine(
-    repository.allReports,
-    _reportFilterCategory
-  ) { reports, filter ->
-    if (filter == null) reports else reports.filter { it.category == filter }
-  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-  val hazardZones: List<HazardZone> = repository.getHazardZones()
-  val safeHavens: List<SafeHaven> = repository.getSafeHavens()
-  val popularDestinations: List<CityDestination> = repository.getPopularDestinations()
+  val hazardZones: List<HazardZone> = localRepo.getHazardZones()
+  val safeHavens: List<SafeHaven> = localRepo.getSafeHavens()
+  val popularDestinations: List<CityDestination> = localRepo.getPopularDestinations()
 
   // Selected destination & route planning state
   private val _selectedDestination = MutableStateFlow(popularDestinations.first())
@@ -82,6 +120,14 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
   private val _mapLayers = MutableStateFlow(MapLayerSettings())
   val mapLayers: StateFlow<MapLayerSettings> = _mapLayers.asStateFlow()
 
+  // Prioritized Real-time Safety Alerts (evaluated along route & user proximity)
+  private val _prioritizedAlerts = MutableStateFlow<List<PrioritizedAlert>>(emptyList())
+  val prioritizedAlerts: StateFlow<List<PrioritizedAlert>> = _prioritizedAlerts.asStateFlow()
+
+  val topRouteAlert: StateFlow<PrioritizedAlert?> = _prioritizedAlerts.combine(_isNavigating) { alerts, _ ->
+    alerts.firstOrNull { it.isOnRoute || it.distanceToUserMeters < 300 }
+  }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
   // SOS Emergency & Safety Toolkit State
   private val _isSosActive = MutableStateFlow(false)
   val isSosActive: StateFlow<Boolean> = _isSosActive.asStateFlow()
@@ -105,7 +151,7 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
   private val _isArrivalTimerActive = MutableStateFlow(false)
   val isArrivalTimerActive: StateFlow<Boolean> = _isArrivalTimerActive.asStateFlow()
 
-  private val _arrivalTimerSecondsRemaining = MutableStateFlow(900) // 15 mins default
+  private val _arrivalTimerSecondsRemaining = MutableStateFlow(900)
   val arrivalTimerSecondsRemaining: StateFlow<Int> = _arrivalTimerSecondsRemaining.asStateFlow()
 
   private var arrivalTimerJob: Job? = null
@@ -113,8 +159,94 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
 
   init {
     viewModelScope.launch {
-      repository.initializePreseededDataIfEmpty()
+      localRepo.initializePreseededDataIfEmpty()
+      firestoreRepo.seedInitialCloudDataIfEmpty()
       recalculateRoutes(_selectedDestination.value)
+    }
+
+    // Monitor alerts against location and route
+    viewModelScope.launch {
+      combine(
+        realtimeAlerts,
+        userLat,
+        userLng,
+        selectedRoute
+      ) { alerts, lat, lng, route ->
+        alertMonitor.evaluateAlerts(alerts, lat, lng, route)
+      }.collect { prioritized ->
+        _prioritizedAlerts.value = prioritized
+      }
+    }
+
+    // Sync theme from profile if available
+    viewModelScope.launch {
+      userProfile.collect { profile ->
+        profile?.themePreference?.let { pref ->
+          runCatching { AppThemeMode.valueOf(pref) }.getOrNull()?.let { mode ->
+            _themeMode.value = mode
+          }
+        }
+      }
+    }
+  }
+
+  fun setThemeMode(mode: AppThemeMode) {
+    _themeMode.value = mode
+    val current = userProfile.value ?: FirestoreUserProfile(
+      userId = Firebase.auth.currentUser?.uid ?: "",
+      displayName = Firebase.auth.currentUser?.displayName ?: "User"
+    )
+    viewModelScope.launch {
+      firestoreRepo.saveUserProfile(current.copy(themePreference = mode.name))
+    }
+  }
+
+  fun saveProfile(
+    displayName: String,
+    phoneNumber: String,
+    bloodType: String,
+    physicalCapacity: String,
+    chronicIllnesses: String,
+    medications: String,
+    allergies: String,
+    emergencyNotes: String
+  ) {
+    viewModelScope.launch {
+      val uid = Firebase.auth.currentUser?.uid ?: return@launch
+      val profile = FirestoreUserProfile(
+        userId = uid,
+        displayName = displayName,
+        email = Firebase.auth.currentUser?.email ?: "",
+        phoneNumber = phoneNumber,
+        bloodType = bloodType,
+        physicalCapacity = physicalCapacity,
+        chronicIllnesses = chronicIllnesses,
+        medications = medications,
+        allergies = allergies,
+        emergencyNotes = emergencyNotes,
+        themePreference = _themeMode.value.name
+      )
+      firestoreRepo.saveUserProfile(profile)
+    }
+  }
+
+  fun saveCurrentRouteAsFavorite(title: String) {
+    val route = selectedRoute.value ?: return
+    viewModelScope.launch {
+      firestoreRepo.addFavoriteRoute(
+        title = title.ifBlank { route.title },
+        startAddress = "Current Location",
+        destinationName = selectedDestination.value.name,
+        routeType = route.type.name,
+        safetyScore = route.safetyScore.toLong(),
+        lightingPercentage = route.lightingPercentage.toLong()
+      )
+    }
+  }
+
+  fun deleteFavoriteRoute(routeId: String) {
+    viewModelScope.launch {
+      firestoreRepo.deleteFavoriteRoute(routeId)
     }
   }
 
@@ -128,24 +260,29 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
   }
 
   private fun recalculateRoutes(destination: CityDestination) {
-    val routes = repository.calculateRouteOptions(
+    val baseRoutes = localRepo.calculateRouteOptions(
       startLat = _userLat.value,
       startLng = _userLng.value,
       dest = destination
     )
-    _routeOptions.value = routes
-    _selectedRoute.value = routes.firstOrNull { it.type == RouteType.SAFEST } ?: routes.firstOrNull()
+    _routeOptions.value = baseRoutes
+    _selectedRoute.value = baseRoutes.find { it.type == RouteType.SAFEST } ?: baseRoutes.firstOrNull()
   }
 
   fun selectRoute(route: RouteOption) {
     _selectedRoute.value = route
+    _prioritizedAlerts.value = alertMonitor.evaluateAlerts(
+      realtimeAlerts.value,
+      _userLat.value,
+      _userLng.value,
+      route
+    )
   }
 
   fun startNavigation() {
     _isNavigating.value = true
     _currentStepIndex.value = 0
 
-    // Start auto-advancing location simulation along route path for visual immersion
     navigationSimJob?.cancel()
     navigationSimJob = viewModelScope.launch {
       val route = _selectedRoute.value ?: return@launch
@@ -158,7 +295,21 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
         _userLng.value = points[i].lng
         val stepIdx = ((i.toFloat() / points.size) * steps.size).toInt().coerceAtMost(steps.size - 1)
         _currentStepIndex.value = stepIdx
-        delay(6000) // Progress checkpoint every 6 seconds
+
+        val evaluated = alertMonitor.evaluateAlerts(
+          realtimeAlerts.value,
+          points[i].lat,
+          points[i].lng,
+          route
+        )
+        _prioritizedAlerts.value = evaluated
+
+        val imminentThreat = evaluated.firstOrNull { it.isOnRoute && it.distanceToUserMeters < 250 }
+        if (imminentThreat != null) {
+          alertMonitor.pushSafetyConcernNotification(imminentThreat)
+        }
+
+        delay(6000)
       }
     }
   }
@@ -190,11 +341,12 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
       "crime" -> cur.copy(showCrimeZones = !cur.showCrimeZones)
       "havens" -> cur.copy(showSafeHavens = !cur.showSafeHavens)
       "reports" -> cur.copy(showCrowdReports = !cur.showCrowdReports)
+      "alerts" -> cur.copy(showRealtimeAlerts = !cur.showRealtimeAlerts)
       else -> cur
     }
   }
 
-  // --- SOS Logic ---
+  // --- SOS Logic with Medical Info and Location Broadcast ---
   fun startSosHoldCountdown() {
     if (_isSosActive.value) return
     _isSosCountingDown.value = true
@@ -207,7 +359,7 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
         delay(1000)
       }
       _isSosCountingDown.value = false
-      activateSosProtocol()
+      activateSosProtocol("911")
     }
   }
 
@@ -218,15 +370,35 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
     _sosCountdown.value = 3
   }
 
-  fun activateSosProtocol() {
+  fun activateSosProtocol(preferredEmergencyNumber: String = "911") {
     _isSosActive.value = true
-    val phoneList = allContacts.value.filter { it.notifyOnSos }.map { it.phoneNumber }
+    val phoneList = localContacts.value.filter { it.notifyOnSos }.map { it.phoneNumber }
+    val currentAddr = "Beacon Blvd near 450 Grand Ave"
+    val profile = userProfile.value
+
+    val medicalSnippet = if (profile != null && profile.medications != "None declared") {
+      " [Medical Note: ${profile.physicalCapacity}, Meds: ${profile.medications}]"
+    } else ""
+
+    val distressMsg = "EMERGENCY: I am walking alone and in danger! Current GPS location: https://maps.google.com/?q=${_userLat.value},${_userLng.value} ($currentAddr).$medicalSnippet Please check on me or dispatch help immediately!"
+
     toolkit.triggerFullSos(
       phoneNumbers = phoneList,
-      currentAddress = "Beacon Blvd near 450 Grand Ave",
+      currentAddress = currentAddr,
       lat = _userLat.value,
       lng = _userLng.value
     )
+
+    viewModelScope.launch {
+      firestoreRepo.logSosActivation(
+        lat = _userLat.value,
+        lng = _userLng.value,
+        address = currentAddr,
+        distressMessage = distressMsg,
+        contactsNotified = phoneList.joinToString(", "),
+        dialedNumber = preferredEmergencyNumber
+      )
+    }
   }
 
   fun dismissSos() {
@@ -258,8 +430,7 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
         _arrivalTimerSecondsRemaining.value--
       }
       if (_isArrivalTimerActive.value && _arrivalTimerSecondsRemaining.value == 0) {
-        // Timer expired without check-in! Trigger safety protocol
-        activateSosProtocol()
+        activateSosProtocol("911")
       }
     }
   }
@@ -275,36 +446,59 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
     description: String,
     category: ReportCategory,
     severity: SeverityLevel,
-    isLighting: Boolean
+    isLighting: Boolean,
+    isAnonymous: Boolean = true
   ) {
     viewModelScope.launch {
-      val newReport = SafetyReportEntity(
+      firestoreRepo.submitReport(
         title = title,
         description = description,
         category = category,
         severity = severity,
-        latitude = _userLat.value + (Math.random() - 0.5) * 0.004,
-        longitude = _userLng.value + (Math.random() - 0.5) * 0.004,
-        addressName = "Reported at Current GPS Pin",
+        latitude = _userLat.value + (Math.random() - 0.5) * 0.003,
+        longitude = _userLng.value + (Math.random() - 0.5) * 0.003,
+        addressName = "Current GPS Location",
+        isAnonymous = isAnonymous
+      )
+
+      val localEntity = SafetyReportEntity(
+        title = title,
+        description = description,
+        category = category,
+        severity = severity,
+        latitude = _userLat.value,
+        longitude = _userLng.value,
+        addressName = "Reported at Current GPS Location",
         timestampFormatted = "Just now",
         upvotes = 1,
         isVerified = false,
         isLightingRelated = isLighting,
-        userReported = true
+        userReported = true,
+        isAnonymous = isAnonymous,
+        verificationStatus = VerificationStatus.PENDING_REVIEW
       )
-      repository.addReport(newReport)
+      localRepo.addReport(localEntity)
+      recalculateRoutes(_selectedDestination.value)
     }
   }
 
-  fun upvoteReport(id: Long) {
+  fun upvoteReport(cloudReport: FirestoreCommunityReport) {
     viewModelScope.launch {
-      repository.upvoteReport(id)
+      firestoreRepo.upvoteReport(cloudReport)
+      recalculateRoutes(_selectedDestination.value)
+    }
+  }
+
+  fun upvoteLocalReport(id: Long) {
+    viewModelScope.launch {
+      localRepo.upvoteReport(id)
     }
   }
 
   // --- Contacts Management ---
   fun addContact(name: String, phone: String, relationship: String, isPrimary: Boolean) {
     viewModelScope.launch {
+      firestoreRepo.addEmergencyContact(name, phone, relationship, isPrimary)
       val contact = EmergencyContactEntity(
         name = name,
         phoneNumber = phone,
@@ -312,13 +506,16 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
         isPrimary = isPrimary,
         notifyOnSos = true
       )
-      repository.addContact(contact)
+      localRepo.addContact(contact)
     }
   }
 
   fun deleteContact(contact: EmergencyContactEntity) {
     viewModelScope.launch {
-      repository.deleteContact(contact)
+      if (contact.firestoreId.isNotBlank()) {
+        firestoreRepo.deleteEmergencyContact(contact.firestoreId)
+      }
+      localRepo.deleteContact(contact)
     }
   }
 

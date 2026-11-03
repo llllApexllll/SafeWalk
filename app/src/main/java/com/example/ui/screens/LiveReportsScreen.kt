@@ -21,10 +21,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.Warning
@@ -50,9 +52,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.FirestoreCommunityReport
 import com.example.data.model.ReportCategory
 import com.example.data.model.SafetyReportEntity
 import com.example.data.model.SeverityLevel
+import com.example.data.model.VerificationStatus
 import com.example.ui.theme.AlertCrimson
 import com.example.ui.theme.AmberGlow
 import com.example.ui.theme.MidnightBlack
@@ -70,8 +74,16 @@ fun LiveReportsScreen(
   onOpenReportDialog: () -> Unit,
   modifier: Modifier = Modifier
 ) {
-  val reports by viewModel.filteredReports.collectAsState()
+  val cloudReports by viewModel.cloudReports.collectAsState()
+  val localReports by viewModel.localReports.collectAsState()
   val selectedFilter by viewModel.reportFilterCategory.collectAsState()
+
+  // Prioritize cloud reports if present, fallback to local reports
+  val displayCloudReports = if (selectedFilter == null) {
+    cloudReports
+  } else {
+    cloudReports.filter { it.category == selectedFilter?.name }
+  }
 
   Box(
     modifier = modifier
@@ -89,19 +101,19 @@ fun LiveReportsScreen(
       item {
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-          text = "Community Safety Network",
+          text = "Crowdsourced Safety Network",
           style = MaterialTheme.typography.headlineSmall,
           fontWeight = FontWeight.Bold,
           color = Color.White
         )
         Text(
-          text = "Real-time crowdsourced reports by local pedestrians and verified safe haven coordinators.",
+          text = "Anonymous, geo-tagged hazard reports reviewed for accuracy before updating algorithmic safe routes.",
           style = MaterialTheme.typography.bodySmall,
           color = Color(0xFF94A3B8),
           modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
         )
 
-        // Summary Statistics Card
+        // Accuracy Review Pipeline Card
         Card(
           colors = CardDefaults.cardColors(containerColor = MidnightSurface),
           shape = RoundedCornerShape(16.dp),
@@ -116,18 +128,18 @@ fun LiveReportsScreen(
               .padding(14.dp)
           ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-              Text(text = "6 Active", fontWeight = FontWeight.Bold, color = SafetyTeal, fontSize = 15.sp)
-              Text(text = "Nearby Alerts", color = Color(0xFF94A3B8), fontSize = 11.sp)
+              Text(text = "Cloud Sync", fontWeight = FontWeight.Bold, color = SafetyTeal, fontSize = 14.sp)
+              Text(text = "Firestore Live", color = Color(0xFF94A3B8), fontSize = 11.sp)
             }
             Box(modifier = Modifier.size(1.dp, 30.dp).background(MidnightBorder))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-              Text(text = "3 Outages", fontWeight = FontWeight.Bold, color = AmberGlow, fontSize = 15.sp)
-              Text(text = "Unlit Spots", color = Color(0xFF94A3B8), fontSize = 11.sp)
+              Text(text = "Accuracy Review", fontWeight = FontWeight.Bold, color = AmberGlow, fontSize = 14.sp)
+              Text(text = "3+ Confirmations", color = Color(0xFF94A3B8), fontSize = 11.sp)
             }
             Box(modifier = Modifier.size(1.dp, 30.dp).background(MidnightBorder))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-              Text(text = "4 Havens", fontWeight = FontWeight.Bold, color = SafeHavenGreen, fontSize = 15.sp)
-              Text(text = "Open 24/7", color = Color(0xFF94A3B8), fontSize = 11.sp)
+              Text(text = "Route Impact", fontWeight = FontWeight.Bold, color = SafeHavenGreen, fontSize = 14.sp)
+              Text(text = "Auto-Detour", color = Color(0xFF94A3B8), fontSize = 11.sp)
             }
           }
         }
@@ -170,31 +182,19 @@ fun LiveReportsScreen(
         Spacer(modifier = Modifier.height(6.dp))
       }
 
-      // Reports List
-      if (reports.isEmpty()) {
-        item {
-          Card(
-            colors = CardDefaults.cardColors(containerColor = MidnightCard),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp)
-          ) {
-            Column(
-              horizontalAlignment = Alignment.CenterHorizontally,
-              modifier = Modifier.padding(24.dp)
-            ) {
-              Icon(imageVector = Icons.Default.Shield, contentDescription = null, tint = SafetyTeal, modifier = Modifier.size(48.dp))
-              Spacer(modifier = Modifier.height(12.dp))
-              Text("No reports found for this filter", fontWeight = FontWeight.Bold, color = Color.White)
-              Spacer(modifier = Modifier.height(4.dp))
-              Text("This area is reported peaceful with normal lighting.", color = Color(0xFF94A3B8), fontSize = 12.sp)
-            }
-          }
+      // Display Cloud Reports if available, else local
+      if (displayCloudReports.isNotEmpty()) {
+        items(displayCloudReports, key = { it.id }) { report ->
+          CloudSafetyReportCard(
+            report = report,
+            onUpvote = { viewModel.upvoteReport(report) }
+          )
         }
       } else {
-        items(reports, key = { it.id }) { report ->
-          SafetyReportItemCard(
-            report = report,
-            onUpvote = { viewModel.upvoteReport(report.id) }
+        items(localReports, key = { it.id }) { localReport ->
+          LocalSafetyReportCard(
+            report = localReport,
+            onUpvote = { viewModel.upvoteLocalReport(localReport.id) }
           )
         }
       }
@@ -205,14 +205,14 @@ fun LiveReportsScreen(
       }
     }
 
-    // Floating Action Button to File Report
+    // Floating Action Button to File Anonymous Report
     ExtendedFloatingActionButton(
       onClick = onOpenReportDialog,
       containerColor = AmberGlow,
       contentColor = MidnightBlack,
       shape = RoundedCornerShape(18.dp),
       icon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp)) },
-      text = { Text("Report Hazard", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+      text = { Text("Report Safety Hazard", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
       modifier = Modifier
         .align(Alignment.BottomEnd)
         .padding(bottom = 20.dp, end = 20.dp)
@@ -222,27 +222,31 @@ fun LiveReportsScreen(
 }
 
 @Composable
-fun SafetyReportItemCard(
-  report: SafetyReportEntity,
+fun CloudSafetyReportCard(
+  report: FirestoreCommunityReport,
   onUpvote: () -> Unit,
   modifier: Modifier = Modifier
 ) {
-  val iconVector = when (report.category) {
-    ReportCategory.BROKEN_LIGHTING -> Icons.Default.Lightbulb
-    ReportCategory.DARK_ALLEY -> Icons.Default.FlashlightOn
-    ReportCategory.SUSPICIOUS_ACTIVITY -> Icons.Default.Warning
-    ReportCategory.HARASSMENT -> Icons.Default.Warning
-    ReportCategory.HIGH_CRIME_SPOT -> Icons.Default.Warning
-    ReportCategory.POLICE_PATROL -> Icons.Default.Shield
-    ReportCategory.SAFE_HAVEN_24_7 -> Icons.Default.Shield
-    ReportCategory.WELL_LIT_CORRIDOR -> Icons.Default.Lightbulb
-  }
+  val isLighting = report.category.contains("LIGHTING") || report.category.contains("DARK")
+  val isCritical = report.severity == SeverityLevel.CRITICAL.name || report.severity == SeverityLevel.HIGH.name
 
   val accentColor = when {
-    report.category == ReportCategory.SAFE_HAVEN_24_7 || report.category == ReportCategory.POLICE_PATROL -> SafeHavenGreen
-    report.isLightingRelated -> AmberGlow
-    report.severity == SeverityLevel.HIGH -> AlertCrimson
+    report.category.contains("SAFE_HAVEN") -> SafeHavenGreen
+    isLighting -> AmberGlow
+    isCritical -> AlertCrimson
     else -> WarningOrange
+  }
+
+  val verificationLabel = when (report.verificationStatus) {
+    VerificationStatus.VERIFIED.name -> "Verified Accuracy"
+    VerificationStatus.COMMUNITY_CONFIRMED.name -> "Community Confirmed"
+    else -> "Pending Review"
+  }
+
+  val verificationColor = when (report.verificationStatus) {
+    VerificationStatus.VERIFIED.name -> SafeHavenGreen
+    VerificationStatus.COMMUNITY_CONFIRMED.name -> SafetyTeal
+    else -> AmberGlow
   }
 
   Card(
@@ -252,7 +256,7 @@ fun SafetyReportItemCard(
     modifier = modifier
       .fillMaxWidth()
       .animateContentSize()
-      .testTag("report_card_${report.id}")
+      .testTag("cloud_report_card_${report.id}")
   ) {
     Column(modifier = Modifier.padding(14.dp)) {
       Row(
@@ -269,7 +273,7 @@ fun SafetyReportItemCard(
               .background(accentColor.copy(alpha = 0.2f))
           ) {
             Icon(
-              imageVector = iconVector,
+              imageVector = if (isLighting) Icons.Default.Lightbulb else Icons.Default.Warning,
               contentDescription = null,
               tint = accentColor,
               modifier = Modifier.size(18.dp)
@@ -279,12 +283,17 @@ fun SafetyReportItemCard(
           Spacer(modifier = Modifier.width(10.dp))
 
           Column {
-            Text(
-              text = report.category.displayName,
-              color = accentColor,
-              fontWeight = FontWeight.Bold,
-              fontSize = 11.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              if (report.isAnonymous) {
+                Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+              }
+              Text(
+                text = report.authorName,
+                color = Color(0xFF94A3B8),
+                fontSize = 11.sp
+              )
+            }
             Text(
               text = report.title,
               style = MaterialTheme.typography.titleMedium,
@@ -294,15 +303,16 @@ fun SafetyReportItemCard(
           }
         }
 
-        // Severity / Time tag
+        // Verification Status Badge
         Surface(
-          color = MidnightSurface,
+          color = verificationColor.copy(alpha = 0.15f),
           shape = RoundedCornerShape(8.dp)
         ) {
           Text(
-            text = report.timestampFormatted,
-            color = Color(0xFF94A3B8),
-            fontSize = 11.sp,
+            text = verificationLabel,
+            color = verificationColor,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
           )
         }
@@ -339,7 +349,7 @@ fun SafetyReportItemCard(
           )
         }
 
-        // Upvote / Confirm Button
+        // Upvote / Accuracy Confirmation Button
         OutlinedButton(
           onClick = onUpvote,
           colors = ButtonDefaults.outlinedButtonColors(
@@ -352,7 +362,116 @@ fun SafetyReportItemCard(
         ) {
           Icon(imageVector = Icons.Default.ThumbUp, contentDescription = null, modifier = Modifier.size(13.dp))
           Spacer(modifier = Modifier.width(6.dp))
-          Text(text = "Confirmed (${report.upvotes})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+          Text(text = "Confirm (+${report.upvotes})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+      }
+    }
+  }
+}
+
+@Composable
+fun LocalSafetyReportCard(
+  report: SafetyReportEntity,
+  onUpvote: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  val accentColor = when {
+    report.category == ReportCategory.SAFE_HAVEN_24_7 -> SafeHavenGreen
+    report.isLightingRelated -> AmberGlow
+    report.severity == SeverityLevel.HIGH || report.severity == SeverityLevel.CRITICAL -> AlertCrimson
+    else -> WarningOrange
+  }
+
+  Card(
+    colors = CardDefaults.cardColors(containerColor = MidnightCard),
+    shape = RoundedCornerShape(16.dp),
+    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder)),
+    modifier = modifier.fillMaxWidth()
+  ) {
+    Column(modifier = Modifier.padding(14.dp)) {
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+              .size(36.dp)
+              .clip(CircleShape)
+              .background(accentColor.copy(alpha = 0.2f))
+          ) {
+            Icon(
+              imageVector = if (report.isLightingRelated) Icons.Default.Lightbulb else Icons.Default.Warning,
+              contentDescription = null,
+              tint = accentColor,
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          Spacer(modifier = Modifier.width(10.dp))
+
+          Column {
+            Text(
+              text = if (report.isAnonymous) "Anonymous Pedestrian" else "Community Member",
+              color = Color(0xFF94A3B8),
+              fontSize = 11.sp
+            )
+            Text(
+              text = report.title,
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = Color.White
+            )
+          }
+        }
+
+        Surface(
+          color = SafetyTeal.copy(alpha = 0.15f),
+          shape = RoundedCornerShape(8.dp)
+        ) {
+          Text(
+            text = "Reviewed",
+            color = SafetyTeal,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      Text(
+        text = report.description,
+        style = MaterialTheme.typography.bodyMedium,
+        color = Color(0xFFE2E8F0),
+        lineHeight = 20.sp
+      )
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(imageVector = Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(14.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text(text = report.addressName, color = Color(0xFF94A3B8), fontSize = 12.sp)
+        }
+
+        OutlinedButton(
+          onClick = onUpvote,
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = SafetyTeal, containerColor = MidnightSurface),
+          border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder)),
+          shape = RoundedCornerShape(10.dp)
+        ) {
+          Icon(imageVector = Icons.Default.ThumbUp, contentDescription = null, modifier = Modifier.size(13.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(text = "Confirm (${report.upvotes})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
       }
     }

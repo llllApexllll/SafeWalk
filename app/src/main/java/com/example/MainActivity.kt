@@ -9,8 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,11 +19,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +34,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,8 +53,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.components.AddContactBottomSheet
 import com.example.ui.components.FakeCallDialog
 import com.example.ui.components.ReportHazardBottomSheet
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.ContactsScreen
 import com.example.ui.screens.LiveReportsScreen
+import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.SafeMapScreen
 import com.example.ui.screens.SosToolkitScreen
 import com.example.ui.theme.AlertCrimson
@@ -65,12 +67,17 @@ import com.example.ui.theme.MidnightSurface
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.SafetyTeal
 import com.example.ui.viewmodel.SafeWalkViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 
 enum class SafeWalkTab(val label: String) {
   MAP("Safe Map"),
   REPORTS("Live Alerts"),
   SOS("SOS Toolkit"),
-  GUARDIANS("Guardians")
+  GUARDIANS("Guardians"),
+  PROFILE("Profile")
 }
 
 class MainActivity : ComponentActivity() {
@@ -78,15 +85,49 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     setContent {
-      MyApplicationTheme(darkTheme = true) {
-        SafeWalkApp()
-      }
+      MainRoot()
     }
   }
 }
 
 @Composable
-fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
+fun MainRoot() {
+  var currentUser by remember { mutableStateOf<FirebaseUser?>(Firebase.auth.currentUser) }
+
+  DisposableEffect(Unit) {
+    val listener = FirebaseAuth.AuthStateListener { auth ->
+      currentUser = auth.currentUser
+    }
+    Firebase.auth.addAuthStateListener(listener)
+    onDispose {
+      Firebase.auth.removeAuthStateListener(listener)
+    }
+  }
+
+  if (currentUser == null) {
+    MyApplicationTheme {
+      AuthScreen(
+        onAuthSuccess = { currentUser = Firebase.auth.currentUser }
+      )
+    }
+  } else {
+    val viewModel: SafeWalkViewModel = viewModel()
+    val themeMode by viewModel.themeMode.collectAsState()
+
+    MyApplicationTheme(themeMode = themeMode) {
+      SafeWalkApp(
+        viewModel = viewModel,
+        onSignOut = { currentUser = null }
+      )
+    }
+  }
+}
+
+@Composable
+fun SafeWalkApp(
+  viewModel: SafeWalkViewModel,
+  onSignOut: () -> Unit
+) {
   val context = LocalContext.current
   var currentTab by remember { mutableStateOf(SafeWalkTab.MAP) }
 
@@ -96,7 +137,7 @@ fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
   val isFakeCallActive by viewModel.isFakeCallActive.collectAsState()
   val fakeCallerName by viewModel.fakeCallerName.collectAsState()
 
-  // Gracefully request Camera permission for flashlight strobe mode and location
+  // Gracefully request Camera (torch strobe) & Location permissions
   val permissionLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.RequestMultiplePermissions()
   ) { /* Handled gracefully */ }
@@ -117,7 +158,7 @@ fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
   Scaffold(
     bottomBar = {
       NavigationBar(
-        containerColor = MidnightSurface,
+        containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp,
         modifier = Modifier
           .navigationBarsPadding()
@@ -134,13 +175,13 @@ fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
               modifier = Modifier.size(24.dp)
             )
           },
-          label = { Text("Safe Map", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+          label = { Text("Safe Map", fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
           colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = MidnightBlack,
-            selectedTextColor = SafetyTeal,
-            indicatorColor = SafetyTeal,
-            unselectedIconColor = Color(0xFF94A3B8),
-            unselectedTextColor = Color(0xFF94A3B8)
+            selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            indicatorColor = MaterialTheme.colorScheme.primary,
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
           ),
           modifier = Modifier.testTag("tab_safe_map")
         )
@@ -156,13 +197,13 @@ fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
               modifier = Modifier.size(24.dp)
             )
           },
-          label = { Text("Alerts", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+          label = { Text("Alerts", fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
           colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = MidnightBlack,
-            selectedTextColor = AmberGlow,
-            indicatorColor = AmberGlow,
-            unselectedIconColor = Color(0xFF94A3B8),
-            unselectedTextColor = Color(0xFF94A3B8)
+            selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            indicatorColor = MaterialTheme.colorScheme.primary,
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
           ),
           modifier = Modifier.testTag("tab_live_alerts")
         )
@@ -178,13 +219,13 @@ fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
               modifier = Modifier.size(24.dp)
             )
           },
-          label = { Text("SOS Toolkit", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+          label = { Text("SOS", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
           colors = NavigationBarItemDefaults.colors(
             selectedIconColor = Color.White,
             selectedTextColor = AlertCrimson,
             indicatorColor = AlertCrimson,
-            unselectedIconColor = Color(0xFF94A3B8),
-            unselectedTextColor = Color(0xFF94A3B8)
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
           ),
           modifier = Modifier.testTag("tab_sos_toolkit")
         )
@@ -200,15 +241,37 @@ fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
               modifier = Modifier.size(24.dp)
             )
           },
-          label = { Text("Guardians", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+          label = { Text("Guardians", fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
           colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = MidnightBlack,
-            selectedTextColor = SafetyTeal,
-            indicatorColor = SafetyTeal,
-            unselectedIconColor = Color(0xFF94A3B8),
-            unselectedTextColor = Color(0xFF94A3B8)
+            selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            indicatorColor = MaterialTheme.colorScheme.primary,
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
           ),
           modifier = Modifier.testTag("tab_guardians")
+        )
+
+        // Tab 5: Profile & Medical Info
+        NavigationBarItem(
+          selected = currentTab == SafeWalkTab.PROFILE,
+          onClick = { currentTab = SafeWalkTab.PROFILE },
+          icon = {
+            Icon(
+              imageVector = if (currentTab == SafeWalkTab.PROFILE) Icons.Filled.Person else Icons.Outlined.Person,
+              contentDescription = "Profile",
+              modifier = Modifier.size(24.dp)
+            )
+          },
+          label = { Text("Profile", fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
+          colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+            selectedTextColor = MaterialTheme.colorScheme.primary,
+            indicatorColor = MaterialTheme.colorScheme.primary,
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+          ),
+          modifier = Modifier.testTag("tab_profile")
         )
       }
     },
@@ -218,7 +281,7 @@ fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
       modifier = Modifier
         .fillMaxSize()
         .padding(innerPadding)
-        .background(MidnightBlack)
+        .background(MaterialTheme.colorScheme.background)
     ) {
       when (currentTab) {
         SafeWalkTab.MAP -> {
@@ -244,14 +307,20 @@ fun SafeWalkApp(viewModel: SafeWalkViewModel = viewModel()) {
             onOpenAddContactDialog = { showAddContactSheet = true }
           )
         }
+        SafeWalkTab.PROFILE -> {
+          ProfileScreen(
+            viewModel = viewModel,
+            onSignOut = onSignOut
+          )
+        }
       }
 
       // Modals & Sheets
       if (showReportHazardSheet) {
         ReportHazardBottomSheet(
           onDismiss = { showReportHazardSheet = false },
-          onSubmit = { title, desc, cat, sev, isLit ->
-            viewModel.submitReport(title, desc, cat, sev, isLit)
+          onSubmit = { title, desc, cat, sev, isLit, isAnon ->
+            viewModel.submitReport(title, desc, cat, sev, isLit, isAnon)
           }
         )
       }

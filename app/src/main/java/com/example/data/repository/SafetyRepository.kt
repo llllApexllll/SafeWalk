@@ -94,7 +94,7 @@ class SafetyRepository(
         SafetyReportEntity(
           title = "Campus Security Booth 24/7",
           description = "University police patrol post with emergency blue light phone, monitored CCTV, and welcoming officers.",
-          category = ReportCategory.POLICE_PATROL,
+          category = ReportCategory.SUDDEN_POLICE_ACTIVITY,
           severity = SeverityLevel.LOW,
           latitude = 37.7810,
           longitude = -122.4100,

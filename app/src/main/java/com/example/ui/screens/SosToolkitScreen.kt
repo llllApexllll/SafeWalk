@@ -8,7 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,11 +26,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.LockClock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PhoneInTalk
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -39,8 +38,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -52,7 +49,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,40 +74,31 @@ fun SosToolkitScreen(
   val isStrobeActive by viewModel.toolkit.isStrobeActive.collectAsState()
   val isArrivalTimerActive by viewModel.isArrivalTimerActive.collectAsState()
   val arrivalSecondsRemaining by viewModel.arrivalTimerSecondsRemaining.collectAsState()
-  val contacts by viewModel.allContacts.collectAsState()
-
-  // Ambient pulse on SOS beacon
-  val infiniteTransition = rememberInfiniteTransition(label = "sos_button_pulse")
-  val pulseScale by infiniteTransition.animateFloat(
-    initialValue = 0.95f,
-    targetValue = 1.08f,
-    animationSpec = infiniteRepeatable(
-      animation = tween(1200),
-      repeatMode = RepeatMode.Reverse
-    ),
-    label = "sos_scale"
-  )
+  val contacts by viewModel.localContacts.collectAsState()
+  val userProfile by viewModel.userProfile.collectAsState()
+  val userLat by viewModel.userLat.collectAsState()
+  val userLng by viewModel.userLng.collectAsState()
 
   LazyColumn(
     modifier = modifier
       .fillMaxSize()
-      .background(MidnightBlack)
+      .background(MaterialTheme.colorScheme.background)
       .padding(horizontal = 16.dp)
       .testTag("sos_toolkit_screen"),
     verticalArrangement = Arrangement.spacedBy(16.dp)
   ) {
     item {
-      Spacer(modifier = Modifier.height(16.dp))
+      Spacer(modifier = Modifier.height(14.dp))
       Text(
-        text = "Guardian Emergency Hub",
+        text = "Emergency SOS & Guardian Toolkit",
         style = MaterialTheme.typography.headlineSmall,
         fontWeight = FontWeight.Bold,
-        color = Color.White
+        color = MaterialTheme.colorScheme.onBackground
       )
       Text(
-        text = "Immediate security countermeasures specifically engineered for walking alone after dark.",
+        text = "Dispatches your real-time location and distress message to emergency contacts with rapid dialing for 911 / 112.",
         style = MaterialTheme.typography.bodySmall,
-        color = Color(0xFF94A3B8),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 4.dp)
       )
     }
@@ -174,7 +161,7 @@ fun SosToolkitScreen(
           Spacer(modifier = Modifier.height(16.dp))
 
           Text(
-            text = "Tap to begin 3-second countdown. Sounds alarm, strobes flashlight, and broadcasts GPS coordinates to your ${contacts.size} guardians.",
+            text = "Sends your current GPS location ($userLat, $userLng) and pre-written distress message to your ${contacts.size} emergency guardians.",
             color = Color(0xFFE2E8F0),
             fontSize = 12.sp,
             textAlign = TextAlign.Center
@@ -183,22 +170,108 @@ fun SosToolkitScreen(
       }
     }
 
-    // 2. Immediate Deterrence Countermeasures (Fake Call, Siren, Strobe)
+    // 2. Pre-Written Distress Message Preview
+    item {
+      Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline)),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(imageVector = Icons.Default.Send, contentDescription = null, tint = SafetyTeal, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "Pre-Written Emergency Distress Message",
+              fontWeight = FontWeight.Bold,
+              color = MaterialTheme.colorScheme.onSurface,
+              fontSize = 13.sp
+            )
+          }
+
+          Spacer(modifier = Modifier.height(6.dp))
+
+          val medNote = if (userProfile?.medications != null && userProfile?.medications != "None declared") {
+            " [Medical: ${userProfile?.physicalCapacity}, Meds: ${userProfile?.medications}]"
+          } else ""
+
+          Text(
+            text = "\"EMERGENCY: I am walking alone and in danger! Current location: Beacon Blvd (https://maps.google.com/?q=$userLat,$userLng).$medNote Please dispatch help immediately!\"",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            lineHeight = 17.sp
+          )
+        }
+      }
+    }
+
+    // 3. Quick Emergency Services Dialers (911 & 112)
     item {
       Text(
-        text = "Immediate Deterrence Tools",
+        text = "Quick Emergency Services",
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
-        color = Color.White
+        color = MaterialTheme.colorScheme.onBackground
+      )
+      Spacer(modifier = Modifier.height(4.dp))
+
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Button(
+          onClick = {
+            viewModel.toolkit.dialEmergencyNumber("911")
+            viewModel.activateSosProtocol("911")
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = AlertCrimson),
+          shape = RoundedCornerShape(12.dp),
+          modifier = Modifier
+            .weight(1f)
+            .height(50.dp)
+            .testTag("dial_911_button")
+        ) {
+          Icon(imageVector = Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Dial 911 (US)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+
+        Button(
+          onClick = {
+            viewModel.toolkit.dialEmergencyNumber("112")
+            viewModel.activateSosProtocol("112")
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+          shape = RoundedCornerShape(12.dp),
+          modifier = Modifier
+            .weight(1f)
+            .height(50.dp)
+            .testTag("dial_112_button")
+        ) {
+          Icon(imageVector = Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Dial 112 (EU/Global)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
+      }
+    }
+
+    // 4. Immediate Deterrence Tools (Fake Call, Siren, Strobe)
+    item {
+      Text(
+        text = "Deterrence Countermeasures",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onBackground
       )
     }
 
     // Fake Call Deterrence
     item {
       Card(
-        colors = CardDefaults.cardColors(containerColor = MidnightCard),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder)),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline)),
         modifier = Modifier
           .fillMaxWidth()
           .clickable { viewModel.triggerFakeCall("Mom (Mobile)") }
@@ -229,14 +302,13 @@ fun SosToolkitScreen(
             Text(
               text = "Simulate Fake Incoming Call",
               fontWeight = FontWeight.Bold,
-              color = Color.White,
+              color = MaterialTheme.colorScheme.onSurface,
               fontSize = 14.sp
             )
             Text(
-              text = "Deter people following you with a realistic phone call and simulated speaker cues.",
-              color = Color(0xFF94A3B8),
-              fontSize = 12.sp,
-              modifier = Modifier.padding(top = 2.dp)
+              text = "Deter pursuers with an incoming ring and simulated caller script.",
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              fontSize = 12.sp
             )
           }
 
@@ -255,9 +327,9 @@ fun SosToolkitScreen(
     // Loud Siren Alarm Toggle
     item {
       Card(
-        colors = CardDefaults.cardColors(containerColor = MidnightCard),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder)),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline)),
         modifier = Modifier.fillMaxWidth()
       ) {
         Row(
@@ -285,14 +357,14 @@ fun SosToolkitScreen(
 
             Column {
               Text(
-                text = "Loud Siren Alarm (Piercing)",
+                text = "Loud Siren Alarm",
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp
               )
               Text(
-                text = "High-decibel alternating frequency to alert surrounding people.",
-                color = Color(0xFF94A3B8),
+                text = "High-decibel alternating sound to alert surrounding pedestrians.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp
               )
             }
@@ -311,9 +383,9 @@ fun SosToolkitScreen(
     // Strobe Flashlight Toggle
     item {
       Card(
-        colors = CardDefaults.cardColors(containerColor = MidnightCard),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder)),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline)),
         modifier = Modifier.fillMaxWidth()
       ) {
         Row(
@@ -343,12 +415,12 @@ fun SosToolkitScreen(
               Text(
                 text = "Disorientation Strobe Light",
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp
               )
               Text(
                 text = "Rapid torch strobing (11 Hz) to disorient or attract attention.",
-                color = Color(0xFF94A3B8),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp
               )
             }
@@ -364,12 +436,12 @@ fun SosToolkitScreen(
       }
     }
 
-    // 3. Safe Arrival Walk Timer
+    // 5. Safe Arrival Walk Timer
     item {
       Card(
-        colors = CardDefaults.cardColors(containerColor = MidnightCard),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder)),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline)),
         modifier = Modifier.fillMaxWidth()
       ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -395,7 +467,7 @@ fun SosToolkitScreen(
               Text(
                 text = "Safe Arrival Walk Timer",
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp
               )
               Text(
@@ -406,7 +478,7 @@ fun SosToolkitScreen(
                 } else {
                   "Automatically alerts guardians if you do not check in."
                 },
-                color = if (isArrivalTimerActive) SafetyTeal else Color(0xFF94A3B8),
+                color = if (isArrivalTimerActive) SafetyTeal else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = if (isArrivalTimerActive) FontWeight.Bold else FontWeight.Normal,
                 fontSize = 12.sp
               )
@@ -436,11 +508,11 @@ fun SosToolkitScreen(
             ) {
               Button(
                 onClick = { viewModel.startArrivalTimer(10) },
-                colors = ButtonDefaults.buttonColors(containerColor = MidnightSurface),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.weight(1f).testTag("timer_10m_btn")
               ) {
-                Text("10 Min", fontSize = 12.sp, color = Color.White)
+                Text("10 Min", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
               }
               Button(
                 onClick = { viewModel.startArrivalTimer(15) },
@@ -452,50 +524,14 @@ fun SosToolkitScreen(
               }
               Button(
                 onClick = { viewModel.startArrivalTimer(25) },
-                colors = ButtonDefaults.buttonColors(containerColor = MidnightSurface),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.weight(1f).testTag("timer_25m_btn")
               ) {
-                Text("25 Min", fontSize = 12.sp, color = Color.White)
+                Text("25 Min", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
               }
             }
           }
-        }
-      }
-    }
-
-    // Direct 911 / Police Contact Card
-    item {
-      Row(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxWidth()
-      ) {
-        Button(
-          onClick = { viewModel.toolkit.dialEmergencyNumber("911") },
-          colors = ButtonDefaults.buttonColors(containerColor = AlertCrimson),
-          shape = RoundedCornerShape(12.dp),
-          modifier = Modifier
-            .weight(1f)
-            .height(48.dp)
-            .testTag("direct_dial_911_button")
-        ) {
-          Icon(imageVector = Icons.Default.Call, contentDescription = null, modifier = Modifier.size(18.dp))
-          Spacer(modifier = Modifier.width(6.dp))
-          Text("Call 911 Direct", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-        }
-
-        Button(
-          onClick = { viewModel.activateSosProtocol() },
-          colors = ButtonDefaults.buttonColors(containerColor = SafetyTeal),
-          shape = RoundedCornerShape(12.dp),
-          modifier = Modifier
-            .weight(1f)
-            .height(48.dp)
-            .testTag("broadcast_sos_sms_button")
-        ) {
-          Icon(imageVector = Icons.Default.Send, contentDescription = null, tint = MidnightBlack, modifier = Modifier.size(18.dp))
-          Spacer(modifier = Modifier.width(6.dp))
-          Text("Alert Guardians", color = MidnightBlack, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
       }
     }

@@ -63,12 +63,12 @@ fun ContactsScreen(
   onOpenAddContactDialog: () -> Unit,
   modifier: Modifier = Modifier
 ) {
-  val contacts by viewModel.allContacts.collectAsState()
+  val contacts by viewModel.localContacts.collectAsState()
 
   LazyColumn(
     modifier = modifier
       .fillMaxSize()
-      .background(MidnightBlack)
+      .background(MaterialTheme.colorScheme.background)
       .padding(horizontal = 16.dp)
       .testTag("contacts_screen"),
     verticalArrangement = Arrangement.spacedBy(14.dp)
