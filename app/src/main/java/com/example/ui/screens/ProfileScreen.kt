@@ -167,6 +167,7 @@ fun ProfileScreen(
               Spacer(modifier = Modifier.width(14.dp))
 
               Column {
+                val isAppleUser = currentUser?.providerData?.any { it.providerId == "apple.com" } == true
                 Text(
                   text = displayName,
                   style = MaterialTheme.typography.titleMedium,
@@ -174,18 +175,34 @@ fun ProfileScreen(
                   color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                  text = if (isGuest) "Local Device Storage" else (currentUser?.email ?: "Google Account Connected"),
+                  text = when {
+                    isGuest -> "Local Device Storage"
+                    isAppleUser -> currentUser?.email?.takeIf { it.isNotBlank() } ?: "Apple ID Connected"
+                    else -> currentUser?.email ?: "Google Account Connected"
+                  },
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                   fontSize = 12.sp
                 )
                 Surface(
-                  color = if (isGuest) AmberGlow.copy(alpha = 0.2f) else SafeHavenGreen.copy(alpha = 0.15f),
+                  color = when {
+                    isGuest -> AmberGlow.copy(alpha = 0.2f)
+                    isAppleUser -> Color.White.copy(alpha = 0.15f)
+                    else -> SafeHavenGreen.copy(alpha = 0.15f)
+                  },
                   shape = RoundedCornerShape(6.dp),
                   modifier = Modifier.padding(top = 4.dp)
                 ) {
                   Text(
-                    text = if (isGuest) "Free Guest Mode" else "Google Account Active",
-                    color = if (isGuest) AmberGlow else SafeHavenGreen,
+                    text = when {
+                      isGuest -> "Free Guest Mode"
+                      isAppleUser -> "Apple Account Active 🍏"
+                      else -> "Google Account Active"
+                    },
+                    color = when {
+                      isGuest -> AmberGlow
+                      isAppleUser -> Color.White
+                      else -> SafeHavenGreen
+                    },
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -201,7 +218,7 @@ fun ProfileScreen(
               ) {
                 Icon(
                   imageVector = Icons.Default.Login,
-                  contentDescription = "Sign In with Google",
+                  contentDescription = "Sign In / Connect Account",
                   tint = SafetyTeal
                 )
               }

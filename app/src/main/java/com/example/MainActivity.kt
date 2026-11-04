@@ -156,7 +156,13 @@ fun SafeWalkApp(
   // Gracefully request Camera (torch strobe) & Location permissions
   val permissionLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.RequestMultiplePermissions()
-  ) { /* Handled gracefully */ }
+  ) { perms ->
+    if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+      perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+    ) {
+      viewModel.forceGpsLocation()
+    }
+  }
 
   LaunchedEffect(Unit) {
     val neededPermissions = mutableListOf<String>()
@@ -166,8 +172,13 @@ fun SafeWalkApp(
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
       neededPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
     }
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+      neededPermissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+    }
     if (neededPermissions.isNotEmpty()) {
       permissionLauncher.launch(neededPermissions.toTypedArray())
+    } else {
+      viewModel.forceGpsLocation()
     }
   }
 

@@ -22,11 +22,23 @@ import com.example.data.model.SeverityLevel
 import com.example.data.model.VerificationStatus
 import com.example.data.repository.FirestoreSafetyRepository
 import com.example.data.repository.SafetyRepository
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Bundle
+import android.os.Looper
+import android.util.Log
+import androidx.core.content.ContextCompat
+import com.example.data.model.SearchResultItem
 import com.example.service.PrioritizedAlert
 import com.example.service.RealtimeAlertMonitor
 import com.example.service.SafetyToolkitManager
+import com.example.service.SearchLocationService
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
+import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -118,6 +130,40 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
   private val _userLng = MutableStateFlow(-122.4150)
   val userLng: StateFlow<Double> = _userLng.asStateFlow()
 
+  // Real GPS & Location tracking state
+  val searchService = SearchLocationService(application)
+  private val locationManager = application.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+  private val _gpsAccuracy = MutableStateFlow<Float?>(null)
+  val gpsAccuracy: StateFlow<Float?> = _gpsAccuracy.asStateFlow()
+
+  private val _gpsStatusText = MutableStateFlow("GPS Ready • Tap ⌖ to Sync")
+  val gpsStatusText: StateFlow<String> = _gpsStatusText.asStateFlow()
+
+  private val _isGpsLocked = MutableStateFlow(false)
+  val isGpsLocked: StateFlow<Boolean> = _isGpsLocked.asStateFlow()
+
+  private val _isAcquiringGps = MutableStateFlow(false)
+  val isAcquiringGps: StateFlow<Boolean> = _isAcquiringGps.asStateFlow()
+
+  private val _forceGpsCounter = MutableStateFlow(0)
+  val forceGpsCounter: StateFlow<Int> = _forceGpsCounter.asStateFlow()
+
+  // Real-time Address, Establishment, and Coordinates Search state
+  private val _searchQuery = MutableStateFlow("")
+  val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+  private val _searchResults = MutableStateFlow<List<SearchResultItem>>(emptyList())
+  val searchResults: StateFlow<List<SearchResultItem>> = _searchResults.asStateFlow()
+
+  private val _isSearching = MutableStateFlow(false)
+  val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+
+  private val _selectedSearchResult = MutableStateFlow<SearchResultItem?>(null)
+  val selectedSearchResult: StateFlow<SearchResultItem?> = _selectedSearchResult.asStateFlow()
+
+  private var searchDebounceJob: Job? = null
+
   // Map layers
   private val _mapLayers = MutableStateFlow(MapLayerSettings())
   val mapLayers: StateFlow<MapLayerSettings> = _mapLayers.asStateFlow()
@@ -189,6 +235,158 @@ class SafeWalkViewModel(application: Application) : AndroidViewModel(application
           }
         }
       }
+    }
+
+    // Immediately attempt GPS sync on startup
+    forceGpsLocation()
+  }
+
+  fun forceGpsLocation(overrideLat: Double? = null, overrideLng: Double? = null) {
+    if (overrideLat != null && overrideLng != null) {
+      _userLat.value = overrideLat
+      _userLng.value = overrideLng
+      _isGpsLocked.value = true
+      _gpsStatusText.value = "GPS Forced: ${String.format(Locale.US, "%.5f", overrideLat)}, ${String.format(Locale.US, "%.5f", overrideLng)}"
+      _forceGpsCounter.value += 1
+      recalculateRoutes(_selectedDestination.value)
+      return
+    }
+
+    _isAcquiringGps.value = true
+    _gpsStatusText.value = "Acquiring live GPS satellites..."
+
+    val hasFine = ContextCompat.checkSelfPermission(
+      getApplication(),
+      android.Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    val hasCoarse = ContextCompat.checkSelfPermission(
+      getApplication(),
+      android.Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+
+    if (!hasFine && !hasCoarse) {
+      _isAcquiringGps.value = false
+      _gpsStatusText.value = "Location Permission Required"
+      return
+    }
+
+    val lm = locationManager
+    if (lm == null) {
+      _isAcquiringGps.value = false
+      _gpsStatusText.value = "Location Service Unavailable"
+      return
+    }
+
+    try {
+      val lastGps = if (hasFine && lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+        lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+      } else null
+
+      val lastNetwork = if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+        lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+      } else null
+
+      val bestLast = when {
+        lastGps != null && lastNetwork != null -> if (lastGps.time >= lastNetwork.time) lastGps else lastNetwork
+        lastGps != null -> lastGps
+        else -> lastNetwork
+      }
+
+      if (bestLast != null) {
+        _userLat.value = bestLast.latitude
+        _userLng.value = bestLast.longitude
+        _gpsAccuracy.value = bestLast.accuracy
+        _isGpsLocked.value = true
+        _gpsStatusText.value = "GPS Locked: ${String.format(Locale.US, "%.5f", bestLast.latitude)}, ${String.format(Locale.US, "%.5f", bestLast.longitude)} (±${bestLast.accuracy.toInt()}m)"
+        _forceGpsCounter.value += 1
+        recalculateRoutes(_selectedDestination.value)
+      }
+
+      val listener = object : LocationListener {
+        override fun onLocationChanged(loc: Location) {
+          _userLat.value = loc.latitude
+          _userLng.value = loc.longitude
+          _gpsAccuracy.value = loc.accuracy
+          _isGpsLocked.value = true
+          _isAcquiringGps.value = false
+          _gpsStatusText.value = "GPS Locked: ${String.format(Locale.US, "%.5f", loc.latitude)}, ${String.format(Locale.US, "%.5f", loc.longitude)} (±${loc.accuracy.toInt()}m)"
+          _forceGpsCounter.value += 1
+          recalculateRoutes(_selectedDestination.value)
+          try {
+            lm.removeUpdates(this)
+          } catch (_: Exception) {}
+        }
+        @Deprecated("Deprecated in Java")
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+      }
+
+      if (hasFine && lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+        lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 1f, listener, Looper.getMainLooper())
+      } else if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+        lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 1f, listener, Looper.getMainLooper())
+      }
+    } catch (e: SecurityException) {
+      Log.e("SafeWalkViewModel", "Location permission security exception", e)
+      _gpsStatusText.value = "Location Permission Denied"
+    } catch (e: Exception) {
+      Log.e("SafeWalkViewModel", "Failed to acquire GPS location", e)
+      _gpsStatusText.value = "GPS Acquisition Error"
+    } finally {
+      _isAcquiringGps.value = false
+    }
+  }
+
+  fun onSearchQueryChanged(query: String) {
+    _searchQuery.value = query
+    searchDebounceJob?.cancel()
+
+    if (query.isBlank()) {
+      _searchResults.value = emptyList()
+      _isSearching.value = false
+      return
+    }
+
+    _isSearching.value = true
+    searchDebounceJob = viewModelScope.launch {
+      delay(200)
+      val results = searchService.search(
+        query = query,
+        userLat = _userLat.value,
+        userLng = _userLng.value,
+        safeHavens = safeHavens,
+        popularDestinations = popularDestinations
+      )
+      _searchResults.value = results
+      _isSearching.value = false
+    }
+  }
+
+  fun clearSearch() {
+    _searchQuery.value = ""
+    _searchResults.value = emptyList()
+    _isSearching.value = false
+    _selectedSearchResult.value = null
+  }
+
+  fun selectSearchResult(item: SearchResultItem, startNavImmediately: Boolean = false) {
+    _selectedSearchResult.value = item
+    _searchQuery.value = ""
+    _searchResults.value = emptyList()
+    _isSearching.value = false
+
+    val destination = CityDestination(
+      id = item.id,
+      name = item.title,
+      category = item.category,
+      address = item.subtitle,
+      lat = item.lat,
+      lng = item.lng
+    )
+    selectDestination(destination)
+    if (startNavImmediately) {
+      startNavigation()
     }
   }
 

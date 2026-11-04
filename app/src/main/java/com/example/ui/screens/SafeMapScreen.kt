@@ -24,6 +24,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -31,8 +34,11 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -45,8 +51,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import com.example.data.model.SearchResultItem
+import com.example.ui.theme.ElectricBlue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -109,8 +120,18 @@ fun SafeMapScreen(
   val isSirenActive by viewModel.toolkit.isSirenActive.collectAsState()
   val isStrobeActive by viewModel.toolkit.isStrobeActive.collectAsState()
 
+  // Real GPS & Search States
+  val searchQuery by viewModel.searchQuery.collectAsState()
+  val searchResults by viewModel.searchResults.collectAsState()
+  val isSearching by viewModel.isSearching.collectAsState()
+  val selectedSearchResult by viewModel.selectedSearchResult.collectAsState()
+  val gpsStatusText by viewModel.gpsStatusText.collectAsState()
+  val isGpsLocked by viewModel.isGpsLocked.collectAsState()
+  val isAcquiringGps by viewModel.isAcquiringGps.collectAsState()
+  val forceGpsCounter by viewModel.forceGpsCounter.collectAsState()
+
   var inspectSafeHaven by remember { mutableStateOf<SafeHaven?>(null) }
-  val safeHavensAlongRoute = remember(selectedRoute, viewModel.safeHavens) {
+  val safeHavensAlongRoute: List<Pair<SafeHaven, Int>> = remember(selectedRoute, viewModel.safeHavens) {
     viewModel.getSafeHavensAlongRoute(selectedRoute)
   }
 
@@ -136,10 +157,11 @@ fun SafeMapScreen(
       showCrowdReports = mapLayers.showCrowdReports,
       showRealtimeAlerts = mapLayers.showRealtimeAlerts,
       onSafeHavenClick = { inspectSafeHaven = it },
+      forceGpsCenterTrigger = forceGpsCounter,
       modifier = Modifier.fillMaxSize()
     )
 
-    // 2. Top Bar: Title, SOS Trigger & Real-time Alert Banner
+    // 2. Top Bar: Search Bar, GPS Status, SOS Trigger & Real-time Alert Banner
     Column(
       modifier = Modifier
         .align(Alignment.TopCenter)
@@ -159,52 +181,260 @@ fun SafeMapScreen(
         ) {
           Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
           ) {
             Icon(
               imageVector = Icons.Default.Shield,
               contentDescription = null,
               tint = AmberGlow,
-              modifier = Modifier.size(20.dp)
+              modifier = Modifier.size(18.dp)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Column {
               Text(
                 text = "SafeWalk Live",
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
+                fontSize = 14.sp
               )
               Text(
-                text = "Real-Time Hazard Guardian",
+                text = "GPS Safety Matrix",
                 color = SafetyTeal,
-                fontSize = 11.sp
+                fontSize = 10.sp
               )
             }
           }
         }
 
-        // Quick Emergency SOS Button (Hold to activate)
-        Button(
-          onClick = { viewModel.startSosHoldCountdown() },
-          colors = ButtonDefaults.buttonColors(containerColor = AlertCrimson),
-          shape = RoundedCornerShape(20.dp),
-          modifier = Modifier
-            .height(42.dp)
-            .testTag("quick_sos_trigger_button")
-        ) {
-          Icon(
-            imageVector = Icons.Default.Warning,
-            contentDescription = "SOS",
-            tint = Color.White,
-            modifier = Modifier.size(18.dp)
-          )
-          Spacer(modifier = Modifier.width(6.dp))
-          Text(text = "SOS", fontWeight = FontWeight.Black, fontSize = 14.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          // Force GPS Sync Quick Button
+          Surface(
+            onClick = { viewModel.forceGpsLocation() },
+            color = if (isGpsLocked) SafeHavenGreen.copy(alpha = 0.22f) else MidnightCard,
+            shape = RoundedCornerShape(16.dp),
+            border = CardDefaults.outlinedCardBorder().copy(
+              brush = androidx.compose.ui.graphics.SolidColor(if (isGpsLocked) SafeHavenGreen else MidnightBorder)
+            ),
+            modifier = Modifier.testTag("force_gps_quick_button")
+          ) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+            ) {
+              Icon(
+                imageVector = Icons.Default.MyLocation,
+                contentDescription = "Force Current GPS Location",
+                tint = if (isGpsLocked) SafeHavenGreen else AmberGlow,
+                modifier = Modifier.size(15.dp)
+              )
+              Spacer(modifier = Modifier.width(5.dp))
+              Text(
+                text = if (isAcquiringGps) "Acquiring..." else if (isGpsLocked) "GPS Locked" else "Force GPS",
+                color = if (isGpsLocked) SafeHavenGreen else AmberGlow,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+              )
+            }
+          }
+
+          Spacer(modifier = Modifier.width(8.dp))
+
+          // Quick Emergency SOS Button (Hold to activate)
+          Button(
+            onClick = { viewModel.startSosHoldCountdown() },
+            colors = ButtonDefaults.buttonColors(containerColor = AlertCrimson),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+              .height(38.dp)
+              .testTag("quick_sos_trigger_button")
+          ) {
+            Icon(
+              imageVector = Icons.Default.Warning,
+              contentDescription = "SOS",
+              tint = Color.White,
+              modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(text = "SOS", fontWeight = FontWeight.Black, fontSize = 13.sp)
+          }
         }
       }
 
       Spacer(modifier = Modifier.height(8.dp))
+
+      // 🔍 Dynamic Search Bar (Address, Establishment, or GPS Coordinates)
+      OutlinedTextField(
+        value = searchQuery,
+        onValueChange = { viewModel.onSearchQueryChanged(it) },
+        placeholder = {
+          Text(
+            text = "Search address, establishment, or coordinates...",
+            fontSize = 13.sp,
+            color = Color(0xFF64748B),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+          )
+        },
+        leadingIcon = {
+          Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = "Search",
+            tint = SafetyTeal,
+            modifier = Modifier.size(19.dp)
+          )
+        },
+        trailingIcon = {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            if (searchQuery.isNotEmpty()) {
+              IconButton(
+                onClick = { viewModel.clearSearch() },
+                modifier = Modifier.size(30.dp).testTag("clear_search_button")
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Close,
+                  contentDescription = "Clear Search",
+                  tint = Color(0xFF94A3B8),
+                  modifier = Modifier.size(18.dp)
+                )
+              }
+            }
+            IconButton(
+              onClick = { viewModel.forceGpsLocation() },
+              modifier = Modifier.size(34.dp).testTag("search_gps_locate_button")
+            ) {
+              Icon(
+                imageVector = Icons.Default.MyLocation,
+                contentDescription = "Force GPS Coordinates",
+                tint = if (isGpsLocked) SafeHavenGreen else SafetyTeal,
+                modifier = Modifier.size(20.dp)
+              )
+            }
+          }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(16.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+          focusedContainerColor = MidnightSurface.copy(alpha = 0.95f),
+          unfocusedContainerColor = MidnightSurface.copy(alpha = 0.88f),
+          focusedBorderColor = SafetyTeal,
+          unfocusedBorderColor = MidnightBorder,
+          focusedTextColor = Color.White,
+          unfocusedTextColor = Color.White,
+          cursorColor = SafetyTeal
+        ),
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("map_search_text_field")
+      )
+
+      // Live GPS Coordinates Information Pill
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 4.dp, vertical = 3.dp)
+      ) {
+        Surface(
+          color = MidnightCard.copy(alpha = 0.92f),
+          shape = RoundedCornerShape(8.dp),
+          border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder))
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+          ) {
+            Icon(
+              imageVector = Icons.Default.MyLocation,
+              contentDescription = null,
+              tint = if (isGpsLocked) SafeHavenGreen else AmberGlow,
+              modifier = Modifier.size(11.dp)
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+              text = gpsStatusText,
+              color = if (isGpsLocked) Color(0xFFA7F3D0) else Color(0xFFFDE68A),
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Medium
+            )
+          }
+        }
+
+        TextButton(
+          onClick = { viewModel.forceGpsLocation() },
+          modifier = Modifier.height(26.dp)
+        ) {
+          Text(
+            text = "Center on GPS",
+            color = SafetyTeal,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+          )
+        }
+      }
+
+      // 📋 Search Results Overlay Card
+      AnimatedVisibility(
+        visible = searchQuery.isNotBlank(),
+        enter = fadeIn() + slideInVertically(),
+        exit = fadeOut() + slideOutVertically()
+      ) {
+        Card(
+          colors = CardDefaults.cardColors(containerColor = MidnightSurface.copy(alpha = 0.98f)),
+          shape = RoundedCornerShape(16.dp),
+          border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(SafetyTeal)),
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp)
+            .testTag("search_results_container")
+        ) {
+          Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween,
+              modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+            ) {
+              Text(
+                text = if (isSearching) "Searching locations..." else "Found ${searchResults.size} matches for '$searchQuery'",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF94A3B8)
+              )
+              IconButton(
+                onClick = { viewModel.clearSearch() },
+                modifier = Modifier.size(22.dp)
+              ) {
+                Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8), modifier = Modifier.size(15.dp))
+              }
+            }
+
+            if (searchResults.isEmpty() && !isSearching) {
+              Text(
+                text = "No matches found. You can enter an establishment (e.g. 'CVS', 'Police', 'Library'), an address, or GPS coordinates like '37.7749, -122.4194'.",
+                fontSize = 12.sp,
+                color = Color(0xFF94A3B8),
+                modifier = Modifier.padding(vertical = 10.dp)
+              )
+            } else {
+              LazyColumn(
+                modifier = Modifier.heightIn(max = 260.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
+                items(searchResults) { result ->
+                  SearchResultRowItem(
+                    item = result,
+                    onSelect = { viewModel.selectSearchResult(result) },
+                    onNavigate = { viewModel.selectSearchResult(result, startNavImmediately = true) },
+                    onSetAsGps = { viewModel.forceGpsLocation(overrideLat = result.lat, overrideLng = result.lng) }
+                  )
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(6.dp))
 
       // Layer Filter Chips Floating Row
       Row(
@@ -540,18 +770,36 @@ fun SafeMapScreen(
               horizontalArrangement = Arrangement.SpaceBetween,
               modifier = Modifier.fillMaxWidth()
             ) {
-              Column {
-                Text(
-                  text = "SAFE DESTINATION",
-                  color = Color(0xFF94A3B8),
-                  fontSize = 11.sp,
-                  fontWeight = FontWeight.Bold
-                )
+              Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(
+                    imageVector = Icons.Default.Place,
+                    contentDescription = null,
+                    tint = AmberGlow,
+                    modifier = Modifier.size(13.dp)
+                  )
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text(
+                    text = "DESTINATION (${selectedDestination.category})",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                  )
+                }
                 Text(
                   text = selectedDestination.name,
                   style = MaterialTheme.typography.titleMedium,
                   fontWeight = FontWeight.Bold,
-                  color = Color.White
+                  color = Color.White,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                  text = selectedDestination.address,
+                  color = Color(0xFF94A3B8),
+                  fontSize = 11.sp,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis
                 )
               }
 
@@ -573,13 +821,32 @@ fun SafeMapScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Popular destinations chips
+            // Popular destinations & searched location chips
             Row(
               horizontalArrangement = Arrangement.spacedBy(8.dp),
               modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
             ) {
+              val isCustomSelected = viewModel.popularDestinations.none { it.id == selectedDestination.id }
+              if (isCustomSelected) {
+                Surface(
+                  color = SafetyTeal,
+                  shape = RoundedCornerShape(14.dp),
+                  border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(SafetyTeal)
+                  ),
+                  modifier = Modifier.testTag("dest_chip_custom")
+                ) {
+                  Text(
+                    text = "🎯 ${selectedDestination.name}",
+                    color = MidnightBlack,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                  )
+                }
+              }
               viewModel.popularDestinations.forEach { dest ->
                 val isSelected = dest.id == selectedDestination.id
                 Surface(
@@ -863,3 +1130,166 @@ fun SafeMapScreen(
     }
   }
 }
+
+@Composable
+fun SearchResultRowItem(
+  item: SearchResultItem,
+  onSelect: () -> Unit,
+  onNavigate: () -> Unit,
+  onSetAsGps: () -> Unit
+) {
+  Card(
+    colors = CardDefaults.cardColors(containerColor = MidnightCard),
+    shape = RoundedCornerShape(14.dp),
+    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MidnightBorder)),
+    modifier = Modifier
+      .fillMaxWidth()
+      .clickable { onSelect() }
+      .testTag("search_result_${item.id}")
+  ) {
+    Column(modifier = Modifier.padding(12.dp)) {
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          modifier = Modifier.weight(1f)
+        ) {
+          Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+              .size(34.dp)
+              .clip(CircleShape)
+              .background(
+                when (item.category) {
+                  "COORDINATES" -> ElectricBlue.copy(alpha = 0.22f)
+                  "SAFE_HAVEN" -> SafeHavenGreen.copy(alpha = 0.22f)
+                  "ESTABLISHMENT" -> SafetyTeal.copy(alpha = 0.22f)
+                  else -> AmberGlow.copy(alpha = 0.22f)
+                }
+              )
+          ) {
+            Icon(
+              imageVector = when (item.category) {
+                "COORDINATES" -> Icons.Default.Place
+                "SAFE_HAVEN" -> Icons.Default.Shield
+                "ESTABLISHMENT" -> Icons.Default.Place
+                else -> Icons.Default.DirectionsWalk
+              },
+              contentDescription = null,
+              tint = when (item.category) {
+                "COORDINATES" -> ElectricBlue
+                "SAFE_HAVEN" -> SafeHavenGreen
+                "ESTABLISHMENT" -> SafetyTeal
+                else -> AmberGlow
+              },
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          Spacer(modifier = Modifier.width(10.dp))
+
+          Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Text(
+                text = item.title,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+              )
+              Spacer(modifier = Modifier.width(6.dp))
+              Surface(
+                color = when (item.category) {
+                  "COORDINATES" -> ElectricBlue.copy(alpha = 0.2f)
+                  "SAFE_HAVEN" -> SafeHavenGreen.copy(alpha = 0.2f)
+                  "ESTABLISHMENT" -> SafetyTeal.copy(alpha = 0.2f)
+                  else -> Color(0xFF334155)
+                },
+                shape = RoundedCornerShape(4.dp)
+              ) {
+                Text(
+                  text = when (item.category) {
+                    "COORDINATES" -> "GPS COORDS"
+                    "SAFE_HAVEN" -> "24/7 HAVEN"
+                    "ESTABLISHMENT" -> "PLACE"
+                    else -> "ADDRESS"
+                  },
+                  color = when (item.category) {
+                    "COORDINATES" -> ElectricBlue
+                    "SAFE_HAVEN" -> SafeHavenGreen
+                    "ESTABLISHMENT" -> SafetyTeal
+                    else -> Color(0xFFCBD5E1)
+                  },
+                  fontSize = 9.sp,
+                  fontWeight = FontWeight.Bold,
+                  modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+              }
+            }
+
+            Text(
+              text = item.subtitle,
+              color = Color(0xFF94A3B8),
+              fontSize = 11.sp,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis
+            )
+          }
+        }
+
+        item.distanceMeters?.let { dist ->
+          Surface(
+            color = Color(0xFF1E293B),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier.padding(start = 6.dp)
+          ) {
+            Text(
+              text = if (dist < 1000) "${dist}m" else "${String.format(java.util.Locale.US, "%.1f", dist / 1000.0)}km",
+              color = SafetyTeal,
+              fontSize = 10.sp,
+              fontWeight = FontWeight.Bold,
+              modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+            )
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      Row(
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        OutlinedButton(
+          onClick = onSetAsGps,
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = AmberGlow),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.height(30.dp).testTag("set_gps_${item.id}")
+        ) {
+          Icon(imageVector = Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(12.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("Force As My GPS", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Button(
+          onClick = onNavigate,
+          colors = ButtonDefaults.buttonColors(containerColor = SafetyTeal),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.height(30.dp).testTag("route_to_${item.id}")
+        ) {
+          Icon(imageVector = Icons.Default.DirectionsWalk, contentDescription = null, tint = MidnightBlack, modifier = Modifier.size(12.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("Route Safely", color = MidnightBlack, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+      }
+    }
+  }
+}
+

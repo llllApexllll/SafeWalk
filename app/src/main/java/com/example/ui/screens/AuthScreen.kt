@@ -65,12 +65,40 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
 import com.google.firebase.Firebase
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.OAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+
+@Composable
+fun AppleIcon(modifier: Modifier = Modifier, tint: Color = Color.White) {
+  Canvas(modifier = modifier) {
+    val w = size.width
+    val h = size.height
+    val path = Path().apply {
+      // Leaf
+      moveTo(w * 0.54f, h * 0.05f)
+      quadraticBezierTo(w * 0.68f, h * 0.06f, w * 0.65f, h * 0.22f)
+      quadraticBezierTo(w * 0.50f, h * 0.20f, w * 0.54f, h * 0.05f)
+      close()
+      // Main body
+      moveTo(w * 0.50f, h * 0.32f)
+      cubicTo(w * 0.42f, h * 0.25f, w * 0.28f, h * 0.26f, w * 0.20f, h * 0.36f)
+      cubicTo(w * 0.08f, h * 0.50f, w * 0.12f, h * 0.76f, w * 0.25f, h * 0.94f)
+      cubicTo(w * 0.32f, h * 1.02f, w * 0.41f, h * 1.00f, w * 0.50f, h * 0.96f)
+      cubicTo(w * 0.59f, h * 1.00f, w * 0.68f, h * 1.02f, w * 0.75f, h * 0.94f)
+      cubicTo(w * 0.88f, h * 0.76f, w * 0.92f, h * 0.50f, w * 0.80f, h * 0.36f)
+      cubicTo(w * 0.72f, h * 0.26f, w * 0.58f, h * 0.25f, w * 0.50f, h * 0.32f)
+      close()
+    }
+    drawPath(path = path, color = tint)
+  }
+}
 
 @Composable
 fun AuthScreen(
@@ -216,6 +244,68 @@ fun AuthScreen(
             }
           }
 
+          Spacer(modifier = Modifier.height(10.dp))
+
+          // Apple Sign In (Supports Apple / iPhone users and cross-platform identity)
+          Button(
+            onClick = {
+              val activity = context as? Activity
+              if (activity == null) {
+                errorMessage = "Activity unavailable for Apple Sign-In"
+                return@Button
+              }
+              isLoading = true
+              errorMessage = null
+              onAppleSignInClicked(
+                activity = activity,
+                onAuthSuccess = {
+                  isLoading = false
+                  onAuthSuccess()
+                },
+                onAuthError = { err ->
+                  isLoading = false
+                  errorMessage = err
+                },
+                scope = coroutineScope
+              )
+            },
+            enabled = !isLoading,
+            colors = ButtonDefaults.buttonColors(
+              containerColor = Color(0xFF0F172A),
+              contentColor = Color.White
+            ),
+            border = CardDefaults.outlinedCardBorder().copy(
+              brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF334155))
+            ),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(50.dp)
+              .testTag("apple_sign_in_button")
+          ) {
+            if (isLoading) {
+              CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                color = Color.White,
+                strokeWidth = 2.dp
+              )
+            } else {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+              ) {
+                AppleIcon(modifier = Modifier.size(18.dp), tint = Color.White)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                  text = "Sign in with Apple",
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 15.sp,
+                  color = Color.White
+                )
+              }
+            }
+          }
+
           Spacer(modifier = Modifier.height(16.dp))
 
           Row(
@@ -325,6 +415,33 @@ fun onGoogleSignInClicked(
     } catch (e: Exception) {
       Log.e("Auth", "Google Sign-In failed", e)
       onAuthError(e.localizedMessage ?: "Sign in failed")
+    }
+  }
+}
+
+fun onAppleSignInClicked(
+  activity: Activity,
+  onAuthSuccess: () -> Unit,
+  onAuthError: (String) -> Unit,
+  scope: CoroutineScope
+) {
+  val provider = OAuthProvider.newBuilder("apple.com")
+  provider.scopes = listOf("email", "name")
+
+  scope.launch {
+    try {
+      Firebase.auth.startActivityForSignInWithProvider(activity, provider.build())
+        .addOnSuccessListener { authResult ->
+          Log.d("Auth", "Apple Sign-In succeeded for user: ${authResult.user?.uid}")
+          onAuthSuccess()
+        }
+        .addOnFailureListener { exception ->
+          Log.e("Auth", "Apple Sign-In failed", exception)
+          onAuthError(exception.localizedMessage ?: "Apple Sign-In could not be completed.")
+        }
+    } catch (e: Exception) {
+      Log.e("Auth", "Failed to launch Apple Sign-In", e)
+      onAuthError(e.localizedMessage ?: "Apple Sign-In launch error")
     }
   }
 }

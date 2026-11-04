@@ -80,11 +80,34 @@ fun SafeRouteMapCanvas(
   showCrowdReports: Boolean,
   showRealtimeAlerts: Boolean = true,
   onSafeHavenClick: ((SafeHaven) -> Unit)? = null,
+  forceGpsCenterTrigger: Int = 0,
   modifier: Modifier = Modifier
 ) {
   var zoomScale by remember { mutableFloatStateOf(1f) }
   var panOffset by remember { mutableStateOf(Offset.Zero) }
   var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+
+  // Recenter on GPS location whenever forceGpsCenterTrigger increments
+  androidx.compose.runtime.LaunchedEffect(forceGpsCenterTrigger) {
+    if (forceGpsCenterTrigger > 0) {
+      panOffset = Offset.Zero
+      zoomScale = 1.0f
+    }
+  }
+
+  // Dynamic Geographic Bounds centered on active GPS location and destination
+  val dLat = kotlin.math.abs(destination.lat - userLat)
+  val dLng = kotlin.math.abs(destination.lng - userLng)
+  val latSpan = maxOf(0.018, dLat * 1.5).coerceIn(0.012, 0.40)
+  val lngSpan = maxOf(0.022, dLng * 1.5).coerceIn(0.015, 0.45)
+
+  val centerLat = if (dLat < 0.25) (userLat + destination.lat) / 2.0 else userLat
+  val centerLng = if (dLng < 0.25) (userLng + destination.lng) / 2.0 else userLng
+
+  val minLat = centerLat - latSpan / 2.0
+  val maxLat = centerLat + latSpan / 2.0
+  val minLng = centerLng - lngSpan / 2.0
+  val maxLng = centerLng + lngSpan / 2.0
 
   // Pulsing animation for safety beacon & alert areas
   val infiniteTransition = rememberInfiniteTransition(label = "map_pulse")
@@ -112,7 +135,7 @@ fun SafeRouteMapCanvas(
       .fillMaxSize()
       .background(MidnightBlack)
       .onSizeChanged { canvasSize = it }
-      .pointerInput(safeHavens, zoomScale, panOffset, canvasSize) {
+      .pointerInput(safeHavens, zoomScale, panOffset, canvasSize, minLat, maxLat, minLng, maxLng) {
         awaitEachGesture {
           val down = awaitFirstDown(requireUnconsumed = false)
           val up = waitForUpOrCancellation()
@@ -125,11 +148,6 @@ fun SafeRouteMapCanvas(
               val h = canvasSize.height.toFloat()
               val cx = (w / 2f) + panOffset.x
               val cy = (h / 2f) + panOffset.y
-
-              val minLat = 37.7690
-              val maxLat = 37.7835
-              val minLng = -122.4230
-              val maxLng = -122.4080
 
               val clickedHaven = safeHavens.find { haven ->
                 val normX = ((haven.lng - minLng) / (maxLng - minLng)).toFloat()
@@ -162,13 +180,8 @@ fun SafeRouteMapCanvas(
       val cx = (w / 2f) + panOffset.x
       val cy = (h / 2f) + panOffset.y
 
-      // Coordinate normalization mapper (anchored around San Francisco downtown sample area 37.771 to 37.783)
+      // Dynamic coordinate normalization mapper anchored directly to active GPS and destination
       fun geoToScreen(lat: Double, lng: Double): Offset {
-        val minLat = 37.7690
-        val maxLat = 37.7835
-        val minLng = -122.4230
-        val maxLng = -122.4080
-
         val normX = ((lng - minLng) / (maxLng - minLng)).toFloat()
         val normY = 1f - ((lat - minLat) / (maxLat - minLat)).toFloat()
 
@@ -178,11 +191,11 @@ fun SafeRouteMapCanvas(
       }
 
       // 1. Draw Street Grid Network (Dark asphalt corridors with outlines)
-      drawStreetGrid(cx, cy, w, h, zoomScale, ::geoToScreen)
+      drawStreetGrid(cx, cy, w, h, zoomScale, minLat, maxLat, minLng, maxLng, ::geoToScreen)
 
       // 2. Draw Street Illumination Glows (Warm amber pools on well-lit streets)
       if (showLighting) {
-        drawLightingCones(::geoToScreen, zoomScale)
+        drawLightingCones(minLat, maxLat, minLng, maxLng, ::geoToScreen, zoomScale)
       }
 
       // 3. Draw High-Crime / Hazard Danger Zones (Red pulsating threat bubbles)
@@ -540,111 +553,95 @@ fun SafeRouteMapCanvas(
   }
 }
 
-// Draws the street network grid and street labels
+// Draws the dynamic street network grid and street labels
 private fun DrawScope.drawStreetGrid(
   cx: Float,
   cy: Float,
   w: Float,
   h: Float,
   zoom: Float,
+  minLat: Double,
+  maxLat: Double,
+  minLng: Double,
+  maxLng: Double,
   toScreen: (Double, Double) -> Offset
 ) {
-  val streetPaint = Stroke(width = 16.dp.toPx() * zoom.coerceIn(0.7f, 1.3f), cap = StrokeCap.Round)
   val roadColor = Color(0xFF131C2E)
-  val roadBorder = Stroke(width = 20.dp.toPx() * zoom.coerceIn(0.7f, 1.3f), cap = StrokeCap.Round)
-  val roadBorderColor = MidnightBorder.copy(alpha = 0.4f)
+  val roadBorderColor = MidnightBorder.copy(alpha = 0.35f)
 
-  data class Street(val name: String, val start: Offset, val end: Offset, val isAvenue: Boolean = false)
+  // 1. Draw dynamic background urban roadway grid for any geographic coordinates
+  val gridDivisions = 5
+  val latStep = (maxLat - minLat) / gridDivisions
+  val lngStep = (maxLng - minLng) / gridDivisions
 
-  val streets = listOf(
-    // Major illuminated avenues
-    Street("Beacon Blvd (Illuminated)", toScreen(37.7710, -122.4120), toScreen(37.7815, -122.4110), true),
-    Street("Grand Ave (Safe Commercial)", toScreen(37.7785, -122.4210), toScreen(37.7785, -122.4090), true),
-    Street("Transit Way", toScreen(37.7710, -122.4170), toScreen(37.7710, -122.4100), true),
-    Street("University Way", toScreen(37.7815, -122.4180), toScreen(37.7815, -122.4085), true),
-    
-    // Cross streets & side alleys
-    Street("4th Street", toScreen(37.7735, -122.4210), toScreen(37.7735, -122.4100)),
-    Street("Elm St (Broken Lighting)", toScreen(37.7760, -122.4220), toScreen(37.7760, -122.4130)),
-    Street("Market Corridor", toScreen(37.7745, -122.4190), toScreen(37.7745, -122.4110)),
-    Street("South Park Perimeter", toScreen(37.7710, -122.4215), toScreen(37.7750, -122.4215))
-  )
-
-  // 1. Draw outer road borders
-  streets.forEach { street ->
-    drawLine(
-      color = roadBorderColor,
-      start = street.start,
-      end = street.end,
-      strokeWidth = if (street.isAvenue) 26.dp.toPx() else 18.dp.toPx(),
-      cap = StrokeCap.Round
-    )
+  for (i in 0..gridDivisions) {
+    val lat = minLat + i * latStep
+    val p1 = toScreen(lat, minLng)
+    val p2 = toScreen(lat, maxLng)
+    drawLine(color = roadBorderColor, start = p1, end = p2, strokeWidth = 16.dp.toPx() * zoom.coerceIn(0.7f, 1.3f), cap = StrokeCap.Square)
+    drawLine(color = roadColor, start = p1, end = p2, strokeWidth = 11.dp.toPx() * zoom.coerceIn(0.7f, 1.3f), cap = StrokeCap.Square)
   }
 
-  // 2. Draw inner road asphalt
-  streets.forEach { street ->
-    drawLine(
-      color = roadColor,
-      start = street.start,
-      end = street.end,
-      strokeWidth = if (street.isAvenue) 20.dp.toPx() else 14.dp.toPx(),
-      cap = StrokeCap.Round
-    )
+  for (j in 0..gridDivisions) {
+    val lng = minLng + j * lngStep
+    val p1 = toScreen(minLat, lng)
+    val p2 = toScreen(maxLat, lng)
+    drawLine(color = roadBorderColor, start = p1, end = p2, strokeWidth = 18.dp.toPx() * zoom.coerceIn(0.7f, 1.3f), cap = StrokeCap.Square)
+    drawLine(color = roadColor, start = p1, end = p2, strokeWidth = 13.dp.toPx() * zoom.coerceIn(0.7f, 1.3f), cap = StrokeCap.Square)
   }
 
-  // 3. Street names
-  streets.forEach { street ->
-    val mid = Offset(
-      (street.start.x + street.end.x) / 2f,
-      (street.start.y + street.end.y) / 2f
-    )
+  // 2. Draw prominent arterial street labels
+  for (i in 1 until gridDivisions) {
+    val lat = minLat + i * latStep
+    val mid = toScreen(lat, (minLng + maxLng) / 2.0)
     drawContext.canvas.nativeCanvas.apply {
       val paint = android.graphics.Paint().apply {
         color = android.graphics.Color.parseColor("#475569")
-        textSize = (if (street.isAvenue) 24f else 20f) * zoom.coerceIn(0.7f, 1.2f)
+        textSize = 20f * zoom.coerceIn(0.7f, 1.2f)
         textAlign = android.graphics.Paint.Align.CENTER
       }
-      drawText(street.name, mid.x, mid.y - 6f, paint)
+      drawText("Safe Corridor ${i * 100} Ave", mid.x, mid.y - 6f, paint)
     }
   }
 }
 
 // Draws warm illumination pools for well-lit streets
-private fun DrawScope.drawLightingCones(toScreen: (Double, Double) -> Offset, zoom: Float) {
-  // Street light locations along Beacon Blvd and Grand Ave
-  val lampCoords = listOf(
-    Pair(37.7715, -122.4120),
-    Pair(37.7735, -122.4120),
-    Pair(37.7755, -122.4115),
-    Pair(37.7775, -122.4112),
-    Pair(37.7795, -122.4110),
-    Pair(37.7810, -122.4105),
-    Pair(37.7785, -122.4140),
-    Pair(37.7785, -122.4165),
-    Pair(37.7712, -122.4145)
-  )
+private fun DrawScope.drawLightingCones(
+  minLat: Double,
+  maxLat: Double,
+  minLng: Double,
+  maxLng: Double,
+  toScreen: (Double, Double) -> Offset,
+  zoom: Float
+) {
+  val gridDivisions = 4
+  val latStep = (maxLat - minLat) / gridDivisions
+  val lngStep = (maxLng - minLng) / gridDivisions
 
-  lampCoords.forEach { (lat, lng) ->
-    val p = toScreen(lat, lng)
-    val r = 32.dp.toPx() * zoom.coerceIn(0.7f, 1.4f)
-    drawCircle(
-      brush = Brush.radialGradient(
-        colors = listOf(
-          AmberGlow.copy(alpha = 0.28f),
-          AmberGlow.copy(alpha = 0.08f),
-          Color.Transparent
+  for (i in 0..gridDivisions) {
+    for (j in 0..gridDivisions step 2) {
+      val lat = minLat + i * latStep
+      val lng = minLng + j * lngStep
+      val p = toScreen(lat, lng)
+      val r = 28.dp.toPx() * zoom.coerceIn(0.7f, 1.4f)
+      drawCircle(
+        brush = Brush.radialGradient(
+          colors = listOf(
+            AmberGlow.copy(alpha = 0.28f),
+            AmberGlow.copy(alpha = 0.08f),
+            Color.Transparent
+          ),
+          center = p,
+          radius = r
         ),
         center = p,
         radius = r
-      ),
-      center = p,
-      radius = r
-    )
-    // Core lamp filament
-    drawCircle(
-      color = Color(0xFFFEF3C7),
-      center = p,
-      radius = 3.dp.toPx()
-    )
+      )
+      drawCircle(
+        color = Color(0xFFFEF3C7),
+        center = p,
+        radius = 3.dp.toPx()
+      )
+    }
   }
 }
